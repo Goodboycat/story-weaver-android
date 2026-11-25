@@ -1,0 +1,415 @@
+package com.example.viewmodel
+
+import android.util.Log
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.ai.AiParserService
+import com.example.data.ActivityLog
+import com.example.data.Character
+import com.example.data.ChatMessage
+import com.example.data.DiceRoll
+import com.example.data.EquipmentSlotItem
+import com.example.data.GridCell
+import com.example.data.JsonCodecs
+import com.example.data.MapToken
+import com.example.data.PreferencesRepository
+import com.example.data.QuickMapAsset
+import com.example.data.Story
+import com.example.data.StoryRepository
+import com.example.data.WorldItem
+import com.example.firebase.unwrapFirestoreErrorMessage
+import com.google.firebase.firestore.FirebaseFirestoreException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlin.random.Random
+
+sealed interface AiUiState {
+    data object Idle : AiUiState
+    data object Loading : AiUiState
+    data class Success(val summary: String) : AiUiState
+    data class Error(val message: String) : AiUiState
+}
+
+class StoryViewModel(
+    private val repository: StoryRepository,
+    private val preferencesRepository: PreferencesRepository,
+    private val aiParser: AiParserService,
+    private val storyId: String,
+    val currentUserId: String,
+) : ViewModel() {
+
+    val storyState: StateFlow<UiState<Story?>> = repository.observeStory(storyId, currentUserId)
+        .map<Story?, UiState<Story?>> { UiState.Success(it) }
+        .catch { error ->
+            val firestoreError = generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            Log.w(TAG, "Error observing story", firestoreError ?: error)
+            emit(UiState.Error(unwrapFirestoreErrorMessage(error, "Failed to load campaign.")))
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UiState.Loading)
+
+    val charactersState: StateFlow<UiState<List<Character>>> = repository.observeCharacters(storyId, currentUserId)
+        .map<List<Character>, UiState<List<Character>>> { UiState.Success(it) }
+        .catch { error ->
+            val firestoreError = generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            Log.w(TAG, "Error observing characters", firestoreError ?: error)
+            emit(UiState.Error(unwrapFirestoreErrorMessage(error, "Failed to load characters.")))
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UiState.Loading)
+
+    val worldItemsState: StateFlow<UiState<List<WorldItem>>> = repository.observeWorldItems(storyId, currentUserId)
+        .map<List<WorldItem>, UiState<List<WorldItem>>> { UiState.Success(it) }
+        .catch { error ->
+            val firestoreError = generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            Log.w(TAG, "Error observing world items", firestoreError ?: error)
+            emit(UiState.Error(unwrapFirestoreErrorMessage(error, "Failed to load world items.")))
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UiState.Loading)
+
+    val rollsState: StateFlow<UiState<List<DiceRoll>>> = repository.observeRolls(storyId, currentUserId)
+        .map<List<DiceRoll>, UiState<List<DiceRoll>>> { UiState.Success(it) }
+        .catch { error ->
+            val firestoreError = generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            Log.w(TAG, "Error observing rolls", firestoreError ?: error)
+            emit(UiState.Error(unwrapFirestoreErrorMessage(error, "Failed to load dice rolls.")))
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UiState.Loading)
+
+    val messagesState: StateFlow<UiState<List<ChatMessage>>> = repository.observeMessages(storyId, currentUserId)
+        .map<List<ChatMessage>, UiState<List<ChatMessage>>> { UiState.Success(it) }
+        .catch { error ->
+            val firestoreError = generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            Log.w(TAG, "Error observing chat messages", firestoreError ?: error)
+            emit(UiState.Error(unwrapFirestoreErrorMessage(error, "Failed to load chat.")))
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UiState.Loading)
+
+    val logsState: StateFlow<UiState<List<ActivityLog>>> = repository.observeLogs(storyId, currentUserId)
+        .map<List<ActivityLog>, UiState<List<ActivityLog>>> { UiState.Success(it) }
+        .catch { error ->
+            val firestoreError = generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            Log.w(TAG, "Error observing logs", firestoreError ?: error)
+            emit(UiState.Error(unwrapFirestoreErrorMessage(error, "Failed to load logs.")))
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UiState.Loading)
+
+    val quickMapAssets: StateFlow<List<QuickMapAsset>> = preferencesRepository.quickMapAssetsFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    private val _viewAsPlayer = MutableStateFlow(false)
+    val viewAsPlayer: StateFlow<Boolean> = _viewAsPlayer.asStateFlow()
+
+    private val _aiState = MutableStateFlow<AiUiState>(AiUiState.Idle)
+    val aiState: StateFlow<AiUiState> = _aiState.asStateFlow()
+
+    private val _toastMessage = MutableStateFlow<String?>(null)
+    val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
+
+    private var mapSyncJob: Job? = null
+    private var lastSyncedMemberSignature: String = ""
+
+    fun toggleViewAsPlayer() {
+        _viewAsPlayer.value = !_viewAsPlayer.value
+    }
+
+    fun clearToast() {
+        _toastMessage.value = null
+    }
+
+    fun resetAiState() {
+        _aiState.value = AiUiState.Idle
+    }
+
+    fun onStoryObserved(story: Story) {
+        val signature = story.memberUids.sorted().joinToString(",")
+        if (story.gmUserId == currentUserId && signature != lastSyncedMemberSignature) {
+            lastSyncedMemberSignature = signature
+            viewModelScope.launch {
+                repository.syncMembersToSubcollections(story)
+            }
+        }
+    }
+
+    fun toggleGuideStep(story: Story, stepId: String) {
+        val current = JsonCodecs.decodeStringSet(story.guideProgressJson).toMutableSet()
+        if (stepId in current) current.remove(stepId) else current.add(stepId)
+        viewModelScope.launch {
+            repository.updateGuideProgress(story.id, JsonCodecs.encodeStringSet(current))
+        }
+    }
+
+    fun resetGuideProgress(story: Story) {
+        viewModelScope.launch {
+            repository.updateGuideProgress(story.id, "[]")
+        }
+    }
+
+    fun updateSessionSchedule(
+        story: Story,
+        sessionAtMillis: Long,
+        note: String,
+        onSaved: (Long, String) -> Unit = { _, _ -> },
+    ) {
+        viewModelScope.launch {
+            val formatted = com.example.notifications.SessionNotificationScheduler.formatSessionDateTime(sessionAtMillis)
+            repository.updateSessionSchedule(
+                story = story,
+                sessionAtMillis = sessionAtMillis,
+                note = note,
+                formattedSummary = formatted,
+            ).onSuccess {
+                _toastMessage.value = if (sessionAtMillis > 0L) {
+                    "Session scheduled: $formatted"
+                } else {
+                    "Session schedule cleared"
+                }
+                onSaved(sessionAtMillis, note)
+            }.onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to update session schedule.")
+            }
+        }
+    }
+
+    fun saveCharacter(story: Story, character: Character, onSaved: () -> Unit = {}) {
+        viewModelScope.launch {
+            val result = repository.saveCharacter(story, character)
+            result.onSuccess {
+                _toastMessage.value = "Saved ${character.name}"
+                onSaved()
+            }.onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to save character.")
+            }
+        }
+    }
+
+    fun deleteCharacters(story: Story, ids: List<String>) {
+        viewModelScope.launch {
+            repository.deleteCharacters(story, ids).onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to delete characters.")
+            }
+        }
+    }
+
+    fun saveWorldItem(story: Story, item: WorldItem, onSaved: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.saveWorldItem(story, item).onSuccess {
+                onSaved()
+            }.onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to save entry.")
+            }
+        }
+    }
+
+    fun reorderWorldItems(story: Story, reordered: List<WorldItem>) {
+        viewModelScope.launch {
+            repository.reorderWorldItems(story, reordered).onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to reorder items.")
+            }
+        }
+    }
+
+    fun deleteWorldItems(story: Story, ids: List<String>) {
+        viewModelScope.launch {
+            repository.deleteWorldItems(story, ids).onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to delete items.")
+            }
+        }
+    }
+
+    fun syncMapDebounced(
+        story: Story,
+        width: Int,
+        height: Int,
+        grid: Map<String, GridCell>,
+        tokens: List<MapToken>,
+        backgroundUrl: String?,
+        immediate: Boolean = false,
+    ) {
+        mapSyncJob?.cancel()
+        mapSyncJob = viewModelScope.launch {
+            if (!immediate) delay(450L)
+            val gridJson = JsonCodecs.encodeGrid(grid)
+            val tokensJson = JsonCodecs.encodeTokens(tokens)
+            val isGm = story.gmUserId == currentUserId && !_viewAsPlayer.value
+            val result = if (isGm) {
+                repository.updateStoryMap(story.id, width, height, gridJson, tokensJson, backgroundUrl)
+            } else {
+                repository.updateStoryTokens(story.id, tokensJson)
+            }
+            result.onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to sync map.")
+            }
+        }
+    }
+
+    fun addQuickMapAsset(asset: QuickMapAsset) {
+        viewModelScope.launch {
+            val next = (listOf(asset) + quickMapAssets.value).distinctBy { it.id }.take(16)
+            preferencesRepository.saveQuickMapAssets(next)
+        }
+    }
+
+    fun removeQuickMapAsset(id: String) {
+        viewModelScope.launch {
+            preferencesRepository.saveQuickMapAssets(quickMapAssets.value.filterNot { it.id == id })
+        }
+    }
+
+    fun sendChatMessage(story: Story, body: String) {
+        val role = if (story.gmUserId == currentUserId && !_viewAsPlayer.value) "GM" else "Player"
+        viewModelScope.launch {
+            repository.sendMessage(story, role, body).onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to send message.")
+            }
+        }
+    }
+
+    fun rollDice(
+        story: Story,
+        diceTerms: List<Pair<Int, Int>>, // (count, sides)
+        modifierSteps: List<Pair<Char, Int>>, // ('+' | '-' | '*' | '/', value)
+        rollerName: String,
+    ) {
+        if (diceTerms.isEmpty()) return
+        val role = if (story.gmUserId == currentUserId && !_viewAsPlayer.value) "GM" else "Player"
+        val rollParts = mutableListOf<String>()
+        val exprParts = mutableListOf<String>()
+        var running = 0
+        diceTerms.forEach { (count, sides) ->
+            val rolls = List(count.coerceIn(1, 50)) { Random.nextInt(1, sides + 1) }
+            running += rolls.sum()
+            exprParts += "${count}d$sides"
+            rollParts += "${count}d$sides[${rolls.joinToString(",")}]"
+        }
+        val exprBuilder = StringBuilder(exprParts.joinToString(" + "))
+        val breakBuilder = StringBuilder(rollParts.joinToString(" + "))
+        modifierSteps.forEach { (op, v) ->
+            exprBuilder.append(" $op $v")
+            breakBuilder.append(" $op $v")
+            running = when (op) {
+                '+' -> running + v
+                '-' -> running - v
+                '×', '*' -> running * v
+                '÷', '/' -> if (v != 0) running / v else running
+                else -> running
+            }
+        }
+        viewModelScope.launch {
+            repository.submitRoll(
+                story = story,
+                rollerName = rollerName,
+                senderRole = role,
+                expression = exprBuilder.toString(),
+                total = running,
+                breakdown = breakBuilder.toString(),
+            ).onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to save roll.")
+            }
+        }
+    }
+
+    fun importCharactersWithAi(
+        story: Story,
+        rawText: String,
+        kind: String,
+        useRegexFallback: Boolean,
+        onComplete: () -> Unit,
+    ) {
+        if (rawText.isBlank()) return
+        viewModelScope.launch {
+            _aiState.value = AiUiState.Loading
+            if (useRegexFallback) {
+                val items = aiParser.parseCharactersRegex(rawText, kind, story, currentUserId)
+                items.forEach { repository.saveCharacter(story, it) }
+                _aiState.value = AiUiState.Success("Imported ${items.size} $kind sheet(s) via quick parser.")
+                onComplete()
+            } else {
+                val res = aiParser.parseCharactersWithGemini(rawText, kind, story, currentUserId)
+                res.onSuccess { items ->
+                    items.forEach { repository.saveCharacter(story, it) }
+                    _aiState.value = AiUiState.Success("AI imported ${items.size} $kind sheet(s).")
+                    onComplete()
+                }.onFailure { err ->
+                    _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI parsing failed.")
+                }
+            }
+        }
+    }
+
+    fun importWorldItemsWithAi(
+        story: Story,
+        rawText: String,
+        category: String,
+        startOrder: Int,
+        useRegexFallback: Boolean,
+        onComplete: () -> Unit,
+    ) {
+        if (rawText.isBlank()) return
+        viewModelScope.launch {
+            _aiState.value = AiUiState.Loading
+            if (useRegexFallback) {
+                val items = aiParser.parseWorldItemsRegex(rawText, category, story, currentUserId, startOrder)
+                items.forEach { repository.saveWorldItem(story, it) }
+                _aiState.value = AiUiState.Success("Imported ${items.size} $category card(s) via quick parser.")
+                onComplete()
+            } else {
+                val res = aiParser.parseWorldItemsWithGemini(rawText, category, story, currentUserId, startOrder)
+                res.onSuccess { items ->
+                    items.forEach { repository.saveWorldItem(story, it) }
+                    _aiState.value = AiUiState.Success("AI imported ${items.size} $category card(s).")
+                    onComplete()
+                }.onFailure { err ->
+                    _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI parsing failed.")
+                }
+            }
+        }
+    }
+
+    fun parseEquipmentWithAi(
+        rawText: String,
+        onParsed: (Map<String, EquipmentSlotItem>) -> Unit,
+    ) {
+        if (rawText.isBlank()) return
+        viewModelScope.launch {
+            _aiState.value = AiUiState.Loading
+            aiParser.parseEquipmentWithGemini(rawText)
+                .onSuccess { slots ->
+                    _aiState.value = AiUiState.Success("Mapped ${slots.size} equipment slot(s).")
+                    onParsed(slots)
+                }
+                .onFailure { err ->
+                    _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI equipment parse failed.")
+                }
+        }
+    }
+
+    private companion object {
+        const val TAG = "StoryVM"
+    }
+}

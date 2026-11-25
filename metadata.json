@@ -1,0 +1,6 @@
+{
+  "name": "Story Weaver",
+  "description": "Tabletop RPG campaign toolkit for Game Masters and players with tactical grid maps, character sheets, dice roller, party chat, AI text parsing, and campaign guides.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

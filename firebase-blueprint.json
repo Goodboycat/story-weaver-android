@@ -1,0 +1,240 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated Story Weaver user profile.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID." },
+        "displayName": { "type": "string", "description": "User display name." },
+        "photoUrl": { "type": "string", "description": "Optional profile photo URL." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp." }
+      },
+      "required": ["userId", "displayName", "createdAt", "updatedAt"]
+    },
+    "StoryInvite": {
+      "title": "StoryInvite",
+      "description": "Join-code lookup record mapping a campaign join code to its story document.",
+      "type": "object",
+      "properties": {
+        "storyId": { "type": "string", "description": "Target story document ID." },
+        "title": { "type": "string", "description": "Story title." },
+        "systemName": { "type": "string", "description": "Tabletop RPG system name." },
+        "gmUserId": { "type": "string", "description": "Game Master UID." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp." }
+      },
+      "required": ["storyId", "title", "systemName", "gmUserId", "createdAt", "updatedAt"]
+    },
+    "Story": {
+      "title": "Story",
+      "description": "TTRPG campaign containing tactical grid map state, GM guide progress, and member access list.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Campaign title." },
+        "description": { "type": "string", "description": "Campaign premise or summary." },
+        "systemName": { "type": "string", "description": "RPG ruleset name." },
+        "joinCode": { "type": "string", "description": "Unique join code matching /story_invites/{joinCode}." },
+        "gmUserId": { "type": "string", "description": "Creator / Game Master UID." },
+        "memberUids": { "type": "array", "description": "UIDs of GM and joined players." },
+        "mapWidth": { "type": "integer", "description": "Tactical map grid columns (4..30)." },
+        "mapHeight": { "type": "integer", "description": "Tactical map grid rows (4..30)." },
+        "mapGridJson": { "type": "string", "description": "Serialized map cells JSON." },
+        "mapTokensJson": { "type": "string", "description": "Serialized map tokens JSON." },
+        "mapBackgroundUrl": { "type": "string", "description": "Optional background image URI or data string." },
+        "guideProgressJson": { "type": "string", "description": "Serialized completed GM checklist step IDs." },
+        "nextSessionAtMillis": { "type": "integer", "description": "Scheduled next play session epoch milliseconds (0 if unset)." },
+        "nextSessionNote": { "type": "string", "description": "Optional session schedule title or note." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp." }
+      },
+      "required": [
+        "title",
+        "description",
+        "systemName",
+        "joinCode",
+        "gmUserId",
+        "memberUids",
+        "mapWidth",
+        "mapHeight",
+        "mapGridJson",
+        "mapTokensJson",
+        "guideProgressJson",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Character": {
+      "title": "Character",
+      "description": "Player character, NPC, or Monster sheet inside a campaign.",
+      "type": "object",
+      "properties": {
+        "storyId": { "type": "string", "description": "Parent story ID." },
+        "gmUserId": { "type": "string", "description": "Campaign GM UID." },
+        "ownerId": { "type": "string", "description": "Owning player or GM UID." },
+        "memberUids": { "type": "array", "description": "Denormalized campaign member UIDs." },
+        "kind": { "type": "string", "enum": ["player", "npc", "monster"], "description": "Character entity kind." },
+        "name": { "type": "string", "description": "Character name." },
+        "avatarEmoji": { "type": "string", "description": "Avatar emoji." },
+        "avatarUrl": { "type": "string", "description": "Optional avatar image URI." },
+        "roleTitle": { "type": "string", "description": "Class, ancestry, or creature role." },
+        "level": { "type": "integer", "description": "Character level or CR." },
+        "hpCurrent": { "type": "integer", "description": "Current hit points." },
+        "hpMax": { "type": "integer", "description": "Maximum hit points." },
+        "ac": { "type": "integer", "description": "Armor class or defense." },
+        "notes": { "type": "string", "description": "Character lore and notes." },
+        "inventoryJson": { "type": "string", "description": "Serialized inventory list JSON." },
+        "missionsJson": { "type": "string", "description": "Serialized missions list JSON." },
+        "powersJson": { "type": "string", "description": "Serialized character powers JSON." },
+        "equipmentJson": { "type": "string", "description": "Serialized 12-slot body equipment JSON." },
+        "statsJson": { "type": "string", "description": "Serialized freeform stats JSON." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp." }
+      },
+      "required": [
+        "storyId",
+        "gmUserId",
+        "ownerId",
+        "memberUids",
+        "kind",
+        "name",
+        "avatarEmoji",
+        "roleTitle",
+        "level",
+        "hpCurrent",
+        "hpMax",
+        "ac",
+        "notes",
+        "inventoryJson",
+        "missionsJson",
+        "powersJson",
+        "equipmentJson",
+        "statsJson",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WorldItem": {
+      "title": "WorldItem",
+      "description": "Campaign Location, Power, or Note card created by the GM.",
+      "type": "object",
+      "properties": {
+        "storyId": { "type": "string", "description": "Parent story ID." },
+        "gmUserId": { "type": "string", "description": "Campaign GM UID." },
+        "ownerId": { "type": "string", "description": "Creator UID." },
+        "memberUids": { "type": "array", "description": "Denormalized campaign member UIDs." },
+        "category": { "type": "string", "enum": ["location", "power", "note"], "description": "Item category." },
+        "title": { "type": "string", "description": "Card title." },
+        "subtitle": { "type": "string", "description": "Card subtitle or type." },
+        "description": { "type": "string", "description": "Detailed description." },
+        "iconName": { "type": "string", "description": "Material icon key." },
+        "iconEmoji": { "type": "string", "description": "Emoji badge." },
+        "sortOrder": { "type": "integer", "description": "Display ordering index." },
+        "tagsJson": { "type": "string", "description": "Serialized tags JSON." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp." }
+      },
+      "required": [
+        "storyId",
+        "gmUserId",
+        "ownerId",
+        "memberUids",
+        "category",
+        "title",
+        "subtitle",
+        "description",
+        "iconName",
+        "iconEmoji",
+        "sortOrder",
+        "tagsJson",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DiceRoll": {
+      "title": "DiceRoll",
+      "description": "Shared dice roll record.",
+      "type": "object",
+      "properties": {
+        "storyId": { "type": "string", "description": "Parent story ID." },
+        "gmUserId": { "type": "string", "description": "Campaign GM UID." },
+        "memberUids": { "type": "array", "description": "Denormalized campaign member UIDs." },
+        "userId": { "type": "string", "description": "Roller UID." },
+        "rollerName": { "type": "string", "description": "Display name of roller." },
+        "expression": { "type": "string", "description": "Dice expression e.g. 2d20 + 5." },
+        "total": { "type": "integer", "description": "Final roll total." },
+        "breakdown": { "type": "string", "description": "Individual die results and modifier steps." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp." }
+      },
+      "required": ["storyId", "gmUserId", "memberUids", "userId", "rollerName", "expression", "total", "breakdown", "createdAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Real-time party chat message or roll broadcast.",
+      "type": "object",
+      "properties": {
+        "storyId": { "type": "string", "description": "Parent story ID." },
+        "gmUserId": { "type": "string", "description": "Campaign GM UID." },
+        "memberUids": { "type": "array", "description": "Denormalized campaign member UIDs." },
+        "senderId": { "type": "string", "description": "Sender UID." },
+        "senderName": { "type": "string", "description": "Sender display name." },
+        "senderRole": { "type": "string", "description": "GM or Player label." },
+        "body": { "type": "string", "description": "Message text." },
+        "messageType": { "type": "string", "enum": ["chat", "roll", "system"], "description": "Message kind." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp." }
+      },
+      "required": ["storyId", "gmUserId", "memberUids", "senderId", "senderName", "senderRole", "body", "messageType", "createdAt"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Chronological campaign activity log entry.",
+      "type": "object",
+      "properties": {
+        "storyId": { "type": "string", "description": "Parent story ID." },
+        "gmUserId": { "type": "string", "description": "Campaign GM UID." },
+        "memberUids": { "type": "array", "description": "Denormalized campaign member UIDs." },
+        "actorId": { "type": "string", "description": "Actor UID." },
+        "actorName": { "type": "string", "description": "Actor display name." },
+        "actionType": { "type": "string", "description": "Category e.g. map, character, roll, world." },
+        "summary": { "type": "string", "description": "Human-readable log summary." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp." }
+      },
+      "required": ["storyId", "gmUserId", "memberUids", "actorId", "actorName", "actionType", "summary", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private authenticated user profile."
+    },
+    "/story_invites/{joinCode}": {
+      "schema": { "$ref": "#/entities/StoryInvite" },
+      "description": "Exact-code invite lookup for joining campaigns."
+    },
+    "/stories/{storyId}": {
+      "schema": { "$ref": "#/entities/Story" },
+      "description": "TTRPG campaign root document."
+    },
+    "/stories/{storyId}/characters/{characterId}": {
+      "schema": { "$ref": "#/entities/Character" },
+      "description": "Campaign players, NPCs, and monsters."
+    },
+    "/stories/{storyId}/world_items/{itemId}": {
+      "schema": { "$ref": "#/entities/WorldItem" },
+      "description": "Campaign locations, powers, and notes."
+    },
+    "/stories/{storyId}/rolls/{rollId}": {
+      "schema": { "$ref": "#/entities/DiceRoll" },
+      "description": "Campaign dice roll history."
+    },
+    "/stories/{storyId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Campaign party chat stream."
+    },
+    "/stories/{storyId}/logs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Campaign chronological activity feed."
+    }
+  }
+}

@@ -1,0 +1,423 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function isValidMemberList(list) {
+      return list is list &&
+        list.size() >= 1 &&
+        list.size() <= 30 &&
+        list[0] is string;
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string &&
+        data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.displayName is string &&
+        data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+        (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 1000)) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidStoryInvite(data) {
+      return isValidId(data.storyId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+        data.systemName is string && data.systemName.size() <= 60 &&
+        data.gmUserId is string && data.gmUserId.size() >= 1 && data.gmUserId.size() <= 128 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidStory(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+        data.description is string && data.description.size() <= 1000 &&
+        data.systemName is string && data.systemName.size() <= 60 &&
+        isValidId(data.joinCode) && data.joinCode.size() >= 4 && data.joinCode.size() <= 20 &&
+        data.gmUserId is string && data.gmUserId.size() >= 1 && data.gmUserId.size() <= 128 &&
+        isValidMemberList(data.memberUids) &&
+        data.mapWidth is int && data.mapWidth >= 4 && data.mapWidth <= 30 &&
+        data.mapHeight is int && data.mapHeight >= 4 && data.mapHeight <= 30 &&
+        data.mapGridJson is string && data.mapGridJson.size() <= 450000 &&
+        data.mapTokensJson is string && data.mapTokensJson.size() <= 100000 &&
+        (!('mapBackgroundUrl' in data) || data.mapBackgroundUrl == null || (data.mapBackgroundUrl is string && data.mapBackgroundUrl.size() <= 250000)) &&
+        data.guideProgressJson is string && data.guideProgressJson.size() <= 50000 &&
+        (!('nextSessionAtMillis' in data) || (data.nextSessionAtMillis is int && data.nextSessionAtMillis >= 0 && data.nextSessionAtMillis <= 4102444800000)) &&
+        (!('nextSessionNote' in data) || (data.nextSessionNote is string && data.nextSessionNote.size() <= 120)) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidCharacter(data) {
+      return isValidId(data.storyId) &&
+        data.gmUserId is string && data.gmUserId.size() >= 1 && data.gmUserId.size() <= 128 &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        isValidMemberList(data.memberUids) &&
+        data.kind in ['player', 'npc', 'monster'] &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.avatarEmoji is string && data.avatarEmoji.size() <= 16 &&
+        (!('avatarUrl' in data) || data.avatarUrl == null || (data.avatarUrl is string && data.avatarUrl.size() <= 250000)) &&
+        data.roleTitle is string && data.roleTitle.size() <= 100 &&
+        data.level is int && data.level >= 0 && data.level <= 999 &&
+        data.hpCurrent is int && data.hpCurrent >= -999 && data.hpCurrent <= 99999 &&
+        data.hpMax is int && data.hpMax >= 0 && data.hpMax <= 99999 &&
+        data.ac is int && data.ac >= 0 && data.ac <= 999 &&
+        data.notes is string && data.notes.size() <= 20000 &&
+        data.inventoryJson is string && data.inventoryJson.size() <= 50000 &&
+        data.missionsJson is string && data.missionsJson.size() <= 50000 &&
+        data.powersJson is string && data.powersJson.size() <= 50000 &&
+        data.equipmentJson is string && data.equipmentJson.size() <= 50000 &&
+        data.statsJson is string && data.statsJson.size() <= 50000 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidWorldItem(data) {
+      return isValidId(data.storyId) &&
+        data.gmUserId is string && data.gmUserId.size() >= 1 && data.gmUserId.size() <= 128 &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        isValidMemberList(data.memberUids) &&
+        data.category in ['location', 'power', 'note'] &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.subtitle is string && data.subtitle.size() <= 120 &&
+        data.description is string && data.description.size() <= 10000 &&
+        data.iconName is string && data.iconName.size() <= 60 &&
+        data.iconEmoji is string && data.iconEmoji.size() <= 16 &&
+        data.sortOrder is int && data.sortOrder >= 0 && data.sortOrder <= 100000 &&
+        data.tagsJson is string && data.tagsJson.size() <= 5000 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidDiceRoll(data) {
+      return isValidId(data.storyId) &&
+        data.gmUserId is string && data.gmUserId.size() >= 1 && data.gmUserId.size() <= 128 &&
+        isValidMemberList(data.memberUids) &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.rollerName is string && data.rollerName.size() >= 1 && data.rollerName.size() <= 80 &&
+        data.expression is string && data.expression.size() >= 1 && data.expression.size() <= 200 &&
+        data.total is int && data.total >= -999999 && data.total <= 999999 &&
+        data.breakdown is string && data.breakdown.size() <= 500 &&
+        isValidTimestamp(data.createdAt);
+    }
+
+    function isValidChatMessage(data) {
+      return isValidId(data.storyId) &&
+        data.gmUserId is string && data.gmUserId.size() >= 1 && data.gmUserId.size() <= 128 &&
+        isValidMemberList(data.memberUids) &&
+        data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128 &&
+        data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 80 &&
+        data.senderRole is string && data.senderRole.size() >= 1 && data.senderRole.size() <= 30 &&
+        data.body is string && data.body.size() >= 1 && data.body.size() <= 2000 &&
+        data.messageType in ['chat', 'roll', 'system'] &&
+        isValidTimestamp(data.createdAt);
+    }
+
+    function isValidActivityLog(data) {
+      return isValidId(data.storyId) &&
+        data.gmUserId is string && data.gmUserId.size() >= 1 && data.gmUserId.size() <= 128 &&
+        isValidMemberList(data.memberUids) &&
+        data.actorId is string && data.actorId.size() >= 1 && data.actorId.size() <= 128 &&
+        data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 80 &&
+        data.actionType is string && data.actionType.size() >= 1 && data.actionType.size() <= 40 &&
+        data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 500 &&
+        isValidTimestamp(data.createdAt);
+    }
+
+    match /users/{userId} {
+      allow get, list: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        incoming().userId == request.auth.uid &&
+        incoming().keys().hasAll(['userId', 'displayName', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['userId', 'displayName', 'photoUrl', 'createdAt', 'updatedAt']) &&
+        isValidUserProfile(incoming());
+      allow update: if isSignedIn() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidUserProfile(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'updatedAt']);
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    match /story_invites/{joinCode} {
+      allow get: if isSignedIn() && isValidId(joinCode);
+      allow list: if false;
+      allow create: if isSignedIn() &&
+        isValidId(joinCode) &&
+        isValidStoryInvite(incoming()) &&
+        incoming().gmUserId == request.auth.uid &&
+        incoming().keys().hasAll(['storyId', 'title', 'systemName', 'gmUserId', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['storyId', 'title', 'systemName', 'gmUserId', 'createdAt', 'updatedAt']);
+      allow update: if isSignedIn() &&
+        isValidId(joinCode) &&
+        isValidStoryInvite(incoming()) &&
+        existing().gmUserId == request.auth.uid &&
+        incoming().gmUserId == existing().gmUserId &&
+        incoming().storyId == existing().storyId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['title', 'systemName', 'updatedAt']);
+      allow delete: if isSignedIn() && isValidId(joinCode) && existing().gmUserId == request.auth.uid;
+    }
+
+    match /stories/{storyId} {
+      allow get: if isSignedIn() && isValidId(storyId) && request.auth.uid in existing().memberUids;
+      allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+      allow create: if isSignedIn() &&
+        isValidId(storyId) &&
+        isValidStory(incoming()) &&
+        incoming().gmUserId == request.auth.uid &&
+        request.auth.uid in incoming().memberUids &&
+        incoming().keys().hasAll([
+          'title', 'description', 'systemName', 'joinCode', 'gmUserId', 'memberUids',
+          'mapWidth', 'mapHeight', 'mapGridJson', 'mapTokensJson', 'guideProgressJson',
+          'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'title', 'description', 'systemName', 'joinCode', 'gmUserId', 'memberUids',
+          'mapWidth', 'mapHeight', 'mapGridJson', 'mapTokensJson', 'mapBackgroundUrl',
+          'guideProgressJson', 'nextSessionAtMillis', 'nextSessionNote',
+          'createdAt', 'updatedAt'
+        ]);
+      allow update: if isSignedIn() &&
+        isValidId(storyId) &&
+        isValidStory(incoming()) &&
+        incoming().gmUserId == existing().gmUserId &&
+        incoming().joinCode == existing().joinCode &&
+        incoming().createdAt == existing().createdAt &&
+        (
+          (
+            existing().gmUserId == request.auth.uid &&
+            incoming().gmUserId in incoming().memberUids &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'description', 'systemName', 'memberUids',
+              'mapWidth', 'mapHeight', 'mapGridJson', 'mapTokensJson',
+              'mapBackgroundUrl', 'guideProgressJson',
+              'nextSessionAtMillis', 'nextSessionNote', 'updatedAt'
+            ])
+          ) ||
+          (
+            !(request.auth.uid in existing().memberUids) &&
+            request.auth.uid in incoming().memberUids &&
+            incoming().memberUids.hasAll(existing().memberUids) &&
+            incoming().memberUids.size() == existing().memberUids.size() + 1 &&
+            exists(/databases/$(database)/documents/story_invites/$(existing().joinCode)) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'updatedAt'])
+          ) ||
+          (
+            request.auth.uid in existing().memberUids &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['mapTokensJson', 'updatedAt'])
+          )
+        );
+      allow delete: if isSignedIn() && isValidId(storyId) && existing().gmUserId == request.auth.uid;
+
+      match /characters/{characterId} {
+        allow get: if isSignedIn() && isValidId(storyId) && isValidId(characterId) && request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+        allow create: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(characterId) &&
+          isValidCharacter(incoming()) &&
+          incoming().storyId == storyId &&
+          incoming().ownerId == request.auth.uid &&
+          request.auth.uid in incoming().memberUids &&
+          exists(/databases/$(database)/documents/stories/$(storyId)) &&
+          request.auth.uid in get(/databases/$(database)/documents/stories/$(storyId)).data.memberUids &&
+          incoming().gmUserId == get(/databases/$(database)/documents/stories/$(storyId)).data.gmUserId &&
+          (incoming().kind == 'player' || request.auth.uid == incoming().gmUserId) &&
+          incoming().keys().hasAll([
+            'storyId', 'gmUserId', 'ownerId', 'memberUids', 'kind', 'name', 'avatarEmoji',
+            'roleTitle', 'level', 'hpCurrent', 'hpMax', 'ac', 'notes',
+            'inventoryJson', 'missionsJson', 'powersJson', 'equipmentJson', 'statsJson',
+            'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'storyId', 'gmUserId', 'ownerId', 'memberUids', 'kind', 'name', 'avatarEmoji',
+            'avatarUrl', 'roleTitle', 'level', 'hpCurrent', 'hpMax', 'ac', 'notes',
+            'inventoryJson', 'missionsJson', 'powersJson', 'equipmentJson', 'statsJson',
+            'createdAt', 'updatedAt'
+          ]);
+        allow update: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(characterId) &&
+          isValidCharacter(incoming()) &&
+          incoming().storyId == existing().storyId &&
+          incoming().gmUserId == existing().gmUserId &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          (existing().ownerId == request.auth.uid || existing().gmUserId == request.auth.uid) &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'kind', 'name', 'avatarEmoji', 'avatarUrl', 'roleTitle', 'level',
+            'hpCurrent', 'hpMax', 'ac', 'notes', 'inventoryJson', 'missionsJson',
+            'powersJson', 'equipmentJson', 'statsJson', 'memberUids', 'updatedAt'
+          ]);
+        allow delete: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(characterId) &&
+          (existing().ownerId == request.auth.uid || existing().gmUserId == request.auth.uid);
+      }
+
+      match /world_items/{itemId} {
+        allow get: if isSignedIn() && isValidId(storyId) && isValidId(itemId) && request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+        allow create: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(itemId) &&
+          isValidWorldItem(incoming()) &&
+          incoming().storyId == storyId &&
+          incoming().ownerId == request.auth.uid &&
+          incoming().gmUserId == request.auth.uid &&
+          request.auth.uid in incoming().memberUids &&
+          exists(/databases/$(database)/documents/stories/$(storyId)) &&
+          get(/databases/$(database)/documents/stories/$(storyId)).data.gmUserId == request.auth.uid &&
+          incoming().keys().hasAll([
+            'storyId', 'gmUserId', 'ownerId', 'memberUids', 'category', 'title',
+            'subtitle', 'description', 'iconName', 'iconEmoji', 'sortOrder',
+            'tagsJson', 'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'storyId', 'gmUserId', 'ownerId', 'memberUids', 'category', 'title',
+            'subtitle', 'description', 'iconName', 'iconEmoji', 'sortOrder',
+            'tagsJson', 'createdAt', 'updatedAt'
+          ]);
+        allow update: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(itemId) &&
+          isValidWorldItem(incoming()) &&
+          incoming().storyId == existing().storyId &&
+          incoming().gmUserId == existing().gmUserId &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          existing().gmUserId == request.auth.uid &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'category', 'title', 'subtitle', 'description', 'iconName',
+            'iconEmoji', 'sortOrder', 'tagsJson', 'memberUids', 'updatedAt'
+          ]);
+        allow delete: if isSignedIn() && isValidId(storyId) && isValidId(itemId) && existing().gmUserId == request.auth.uid;
+      }
+
+      match /rolls/{rollId} {
+        allow get: if isSignedIn() && isValidId(storyId) && isValidId(rollId) && request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+        allow create: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(rollId) &&
+          isValidDiceRoll(incoming()) &&
+          incoming().storyId == storyId &&
+          incoming().userId == request.auth.uid &&
+          request.auth.uid in incoming().memberUids &&
+          exists(/databases/$(database)/documents/stories/$(storyId)) &&
+          request.auth.uid in get(/databases/$(database)/documents/stories/$(storyId)).data.memberUids &&
+          incoming().gmUserId == get(/databases/$(database)/documents/stories/$(storyId)).data.gmUserId &&
+          incoming().keys().hasAll([
+            'storyId', 'gmUserId', 'memberUids', 'userId', 'rollerName',
+            'expression', 'total', 'breakdown', 'createdAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'storyId', 'gmUserId', 'memberUids', 'userId', 'rollerName',
+            'expression', 'total', 'breakdown', 'createdAt'
+          ]);
+        allow update: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(rollId) &&
+          isValidDiceRoll(incoming()) &&
+          existing().gmUserId == request.auth.uid &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+        allow delete: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(rollId) &&
+          (existing().userId == request.auth.uid || existing().gmUserId == request.auth.uid);
+      }
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(storyId) && isValidId(messageId) && request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+        allow create: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(messageId) &&
+          isValidChatMessage(incoming()) &&
+          incoming().storyId == storyId &&
+          incoming().senderId == request.auth.uid &&
+          request.auth.uid in incoming().memberUids &&
+          exists(/databases/$(database)/documents/stories/$(storyId)) &&
+          request.auth.uid in get(/databases/$(database)/documents/stories/$(storyId)).data.memberUids &&
+          incoming().gmUserId == get(/databases/$(database)/documents/stories/$(storyId)).data.gmUserId &&
+          incoming().keys().hasAll([
+            'storyId', 'gmUserId', 'memberUids', 'senderId', 'senderName',
+            'senderRole', 'body', 'messageType', 'createdAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'storyId', 'gmUserId', 'memberUids', 'senderId', 'senderName',
+            'senderRole', 'body', 'messageType', 'createdAt'
+          ]);
+        allow update: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(messageId) &&
+          isValidChatMessage(incoming()) &&
+          existing().gmUserId == request.auth.uid &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+        allow delete: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(messageId) &&
+          (existing().senderId == request.auth.uid || existing().gmUserId == request.auth.uid);
+      }
+
+      match /logs/{logId} {
+        allow get: if isSignedIn() && isValidId(storyId) && isValidId(logId) && request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+        allow create: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(logId) &&
+          isValidActivityLog(incoming()) &&
+          incoming().storyId == storyId &&
+          incoming().actorId == request.auth.uid &&
+          request.auth.uid in incoming().memberUids &&
+          exists(/databases/$(database)/documents/stories/$(storyId)) &&
+          request.auth.uid in get(/databases/$(database)/documents/stories/$(storyId)).data.memberUids &&
+          incoming().gmUserId == get(/databases/$(database)/documents/stories/$(storyId)).data.gmUserId &&
+          incoming().keys().hasAll([
+            'storyId', 'gmUserId', 'memberUids', 'actorId', 'actorName',
+            'actionType', 'summary', 'createdAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'storyId', 'gmUserId', 'memberUids', 'actorId', 'actorName',
+            'actionType', 'summary', 'createdAt'
+          ]);
+        allow update: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(logId) &&
+          isValidActivityLog(incoming()) &&
+          existing().gmUserId == request.auth.uid &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+        allow delete: if isSignedIn() && isValidId(storyId) && isValidId(logId) && existing().gmUserId == request.auth.uid;
+      }
+    }
+  }
+}
