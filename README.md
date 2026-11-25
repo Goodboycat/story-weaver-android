@@ -32,15 +32,24 @@ Native Android Kotlin application built with **Jetpack Compose**, **Material Des
 
 Follow these steps if you clone this repository or connect it to your own Firebase project:
 
-### 1. Create a Firebase Project & Enable Google Sign-In
+### 1. Create a Firebase Project & Enable Google (Gmail) Sign-In
 1. Open the [Firebase Console](https://console.firebase.google.com/) and create or select your project.
 2. Go to **Build → Authentication → Get Started**.
-3. Open the **Sign-in method** tab, select **Google**, enable it, choose a project support email, and click **Save**.
+3. Open the **Sign-in method** tab, click **Add new provider → Google**, toggle **Enable**, select a **Project support email** (your Gmail/Google Workspace address), and click **Save**.
 
-### 2. Get Your Android SHA-1 and SHA-256 Fingerprints
-Google Sign-In via Credential Manager requires your app's signing certificate fingerprints in Firebase.
+### 2. Configure the Google Cloud OAuth Consent Screen (Required for Gmail Accounts)
+Because Story Weaver signs users in with their Gmail/Google account via Jetpack Credential Manager (`GetSignInWithGoogleOption`), your Google Cloud project's OAuth consent screen must allow Gmail users:
+1. Open the [Google Cloud Console](https://console.cloud.google.com/) and select the **same project** linked to Firebase.
+2. Go to **Google Auth Platform** (or **APIs & Services → OAuth consent screen**).
+3. Complete the **App Information** (App name: `Story Weaver`, User support email, Developer contact email) and choose **External** audience.
+4. Under **Audience / Publishing status**:
+   - **While in Testing mode**: Click **Add users** under **Test users** and add every Gmail address (yours and your players') that will sign in.
+   - **For all Gmail users**: Click **Publish App** (and optionally submit verification if deploying publicly) so any Gmail account can sign in without `403: access_denied`.
 
-Run this command in the project root to inspect `debug.keystore` (or decode `debug.keystore.base64` first with `base64 -d debug.keystore.base64 > debug.keystore`):
+### 3. Get Your Android SHA-1 and SHA-256 Fingerprints
+Google Sign-In (`CredentialManager`) validates the signing certificate of the APK against Firebase. **The SHA-1 in Firebase must match the keystore used to sign the APK you install.**
+
+Run this command in the project root to inspect `debug.keystore` (if `debug.keystore` does not exist locally, first run `base64 -d debug.keystore.base64 > debug.keystore`—this is the exact keystore used by GitHub Actions):
 
 ```bash
 keytool -list -v \
@@ -50,19 +59,33 @@ keytool -list -v \
   -keypass android
 ```
 
-Copy the **SHA1** and **SHA256** values. (For Play Store release builds, also add your Play App Signing SHA-1/SHA-256 from Google Play Console.)
+Copy both **SHA1** and **SHA256**.
+- **If building locally in Android Studio** on another machine, also inspect `~/.android/debug.keystore` (`-storepass android`) and add that machine's SHA-1 too.
+- **For Google Play / Release APKs**, copy the **App signing key certificate SHA-1 & SHA-256** from Google Play Console → **Setup → App signing**.
 
-### 3. Register the Android App & Download `google-services.json`
+### 4. Register the Android App & Download an Updated `google-services.json`
 1. In Firebase Console → **Project Settings → Your apps → Add app → Android**.
 2. Enter Android package name: `com.aistudio.storyweaver.kmrxpz`.
-3. Paste your **SHA-1** certificate fingerprint (and add **SHA-256** in Project Settings afterward).
-4. Download **`google-services.json`** and place it at:
+3. Paste your **SHA-1** certificate fingerprint (and add **SHA-256** under **Add fingerprint** in Project Settings).
+4. **Re-download `google-services.json`** *after* enabling Google Sign-In and adding your SHA-1, then save it at:
    ```text
    app/google-services.json
    ```
-5. Verify that `google-services.json` contains an `oauth_client` entry with `"client_type": 3` (Web Client ID). The Google Services Gradle plugin automatically generates `R.string.default_web_client_id` from this entry—do **not** hardcode it manually in `strings.xml`.
+5. Open `app/google-services.json` and confirm it contains an `oauth_client` entry with `"client_type": 3` (your **Web Client ID**). The Google Services Gradle plugin automatically generates `R.string.default_web_client_id` from that entry—never hardcode it manually in `strings.xml`.
 
-### 4. Configure Cloud Firestore & Security Rules
+### 5. Device & Emulator Requirements for Gmail Sign-In
+- **Physical Android Phone**: Works out of the box once a Gmail account is signed in on the device.
+- **Android Emulator**: Make sure your AVD uses a **Google Play** system image (not AOSP without Play Services) and sign into a Gmail account in **Android Settings → Passwords & accounts** (or follow the Google Sign-In prompt).
+
+### Gmail Sign-In Troubleshooting
+| Symptom / Error | Cause | Fix |
+| :--- | :--- | :--- |
+| `default_web_client_id not found` | Missing `oauth_client` (`client_type: 3`) in `google-services.json` | Enable Google provider in Firebase Auth, add SHA-1, then **re-download** `app/google-services.json`. |
+| Sign-In sheet closes / `GetCredentialCancellationException` / Developer error (`10`) | APK signing SHA-1 does not match Firebase | Run `keytool -list -v` on the keystore signing your APK (`debug.keystore.base64` for GitHub builds) and add its SHA-1 to Firebase. |
+| `Error 403: access_denied` for a player's Gmail | OAuth Consent Screen is in **Testing** mode | Add that Gmail under **OAuth consent screen → Test users**, or click **Publish App**. |
+| `NoCredentialException` on silent login | First launch or no saved Google session yet | Tap the **Sign in with Google** button; on emulators ensure Google Play Services is installed and updated. |
+
+### 6. Configure Cloud Firestore & Security Rules
 1. In Firebase Console → **Build → Firestore Database**, ensure your database exists (named or `(default)`).
 2. Update `firestore_database_id` in `app/src/main/res/values/firebase_applet_config.xml` to match your Firestore database ID (use `(default)` if using the default database).
 3. Deploy the included security rules (`firestore.rules`) using Firebase CLI:
@@ -70,7 +93,7 @@ Copy the **SHA1** and **SHA256** values. (For Play Store release builds, also ad
    firebase deploy --only firestore:rules
    ```
 
-### 5. Configure Firebase App Check (Required for AI Parsers)
+### 7. Configure Firebase App Check (Required for AI Parsers)
 Firebase AI Logic (`Firebase.ai`) requires App Check:
 1. In Firebase Console → **Build → App Check**, register your Android app.
 2. For **Debug / Emulator builds**, register a Debug token in App Check → **Manage debug tokens** and pass it via launch Intent extra `FIREBASE_APPCHECK_DEBUG_TOKEN` (handled automatically in `AppCheckHelper.kt`).
@@ -92,7 +115,7 @@ This repository includes `.github/workflows/android-debug-apk.yml`, which automa
    git remote add origin https://github.com/<your-username>/<your-repo>.git
    git push -u origin main
    ```
-2. **If `app/google-services.json` is not committed to Git**, encode it to base64 and add it as a GitHub Repository Secret named `GOOGLE_SERVICES_JSON_BASE64`:
+2. **If `app/google-services.json` is not committed to Git** (or whenever you re-download it after enabling Google Sign-In and adding SHA-1), encode it to base64 and add/update the GitHub Repository Secret named `GOOGLE_SERVICES_JSON_BASE64`:
    ```bash
    base64 -w 0 app/google-services.json
    ```
