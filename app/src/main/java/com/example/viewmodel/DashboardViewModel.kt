@@ -122,6 +122,22 @@ class DashboardViewModel(
         viewModelScope.launch { preferencesRepository.setLanguage(code) }
     }
 
+    fun setAiProvider(provider: com.example.ai.AiProvider) {
+        viewModelScope.launch { preferencesRepository.setAiProvider(provider) }
+    }
+
+    fun setAiModel(model: String) {
+        viewModelScope.launch { preferencesRepository.setAiModel(model) }
+    }
+
+    fun setAiEndpointUrl(url: String) {
+        viewModelScope.launch { preferencesRepository.setAiEndpointUrl(url) }
+    }
+
+    fun setAiApiKey(apiKey: String) {
+        viewModelScope.launch { preferencesRepository.setAiApiKey(apiKey) }
+    }
+
     private companion object {
         const val TAG = "DashboardVM"
     }

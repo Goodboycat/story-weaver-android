@@ -3,7 +3,10 @@ package com.example.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ai.AiChatMessage
+import com.example.ai.AiChatUiState
 import com.example.ai.AiParserService
+import com.example.ai.AiProvider
 import com.example.data.ActivityLog
 import com.example.data.Character
 import com.example.data.ChatMessage
@@ -16,6 +19,7 @@ import com.example.data.PreferencesRepository
 import com.example.data.QuickMapAsset
 import com.example.data.Story
 import com.example.data.StoryRepository
+import com.example.data.UserSettings
 import com.example.data.WorldItem
 import com.example.firebase.unwrapFirestoreErrorMessage
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -122,11 +126,17 @@ class StoryViewModel(
     val quickMapAssets: StateFlow<List<QuickMapAsset>> = preferencesRepository.quickMapAssetsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
 
+    val userSettings: StateFlow<UserSettings> = preferencesRepository.settingsFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UserSettings())
+
     private val _viewAsPlayer = MutableStateFlow(false)
     val viewAsPlayer: StateFlow<Boolean> = _viewAsPlayer.asStateFlow()
 
     private val _aiState = MutableStateFlow<AiUiState>(AiUiState.Idle)
     val aiState: StateFlow<AiUiState> = _aiState.asStateFlow()
+
+    private val _aiChatState = MutableStateFlow(AiChatUiState())
+    val aiChatState: StateFlow<AiChatUiState> = _aiChatState.asStateFlow()
 
     private val _toastMessage = MutableStateFlow<String?>(null)
     val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
@@ -144,6 +154,62 @@ class StoryViewModel(
 
     fun resetAiState() {
         _aiState.value = AiUiState.Idle
+    }
+
+    fun setAiProvider(provider: AiProvider) {
+        viewModelScope.launch { preferencesRepository.setAiProvider(provider) }
+    }
+
+    fun setAiModel(model: String) {
+        viewModelScope.launch { preferencesRepository.setAiModel(model) }
+    }
+
+    fun clearAiChat() {
+        _aiChatState.value = AiChatUiState()
+    }
+
+    fun clearAiChatError() {
+        _aiChatState.value = _aiChatState.value.copy(errorMessage = null)
+    }
+
+    fun sendAiChatMessage(story: Story?, prompt: String, contextHint: String? = null) {
+        val clean = prompt.trim()
+        if (clean.isEmpty() || _aiChatState.value.isLoading) return
+        val settings = userSettings.value
+        val userMsg = AiChatMessage(role = "user", content = clean)
+        val updatedHistory = _aiChatState.value.messages + userMsg
+        _aiChatState.value = _aiChatState.value.copy(
+            messages = updatedHistory,
+            isLoading = true,
+            errorMessage = null,
+        )
+        viewModelScope.launch {
+            aiParser.chatWithAi(
+                history = updatedHistory,
+                story = story,
+                provider = settings.aiProvider,
+                modelName = settings.aiModel,
+                endpointUrl = settings.aiEndpointUrl,
+                apiKeyOverride = settings.aiApiKey,
+                contextHint = contextHint,
+            ).onSuccess { reply ->
+                val assistantMsg = AiChatMessage(
+                    role = "assistant",
+                    content = reply,
+                    modelUsed = settings.aiModel,
+                )
+                _aiChatState.value = _aiChatState.value.copy(
+                    messages = _aiChatState.value.messages + assistantMsg,
+                    isLoading = false,
+                    errorMessage = null,
+                )
+            }.onFailure { err ->
+                _aiChatState.value = _aiChatState.value.copy(
+                    isLoading = false,
+                    errorMessage = err.localizedMessage ?: "AI request failed.",
+                )
+            }
+        }
     }
 
     fun onStoryObserved(story: Story) {
@@ -342,6 +408,7 @@ class StoryViewModel(
         onComplete: () -> Unit,
     ) {
         if (rawText.isBlank()) return
+        val settings = userSettings.value
         viewModelScope.launch {
             _aiState.value = AiUiState.Loading
             if (useRegexFallback) {
@@ -350,7 +417,16 @@ class StoryViewModel(
                 _aiState.value = AiUiState.Success("Imported ${items.size} $kind sheet(s) via quick parser.")
                 onComplete()
             } else {
-                val res = aiParser.parseCharactersWithGemini(rawText, kind, story, currentUserId)
+                val res = aiParser.parseCharactersWithAi(
+                    rawText = rawText,
+                    kind = kind,
+                    story = story,
+                    ownerId = currentUserId,
+                    provider = settings.aiProvider,
+                    modelName = settings.aiModel,
+                    endpointUrl = settings.aiEndpointUrl,
+                    apiKeyOverride = settings.aiApiKey,
+                )
                 res.onSuccess { items ->
                     items.forEach { repository.saveCharacter(story, it) }
                     _aiState.value = AiUiState.Success("AI imported ${items.size} $kind sheet(s).")
@@ -371,6 +447,7 @@ class StoryViewModel(
         onComplete: () -> Unit,
     ) {
         if (rawText.isBlank()) return
+        val settings = userSettings.value
         viewModelScope.launch {
             _aiState.value = AiUiState.Loading
             if (useRegexFallback) {
@@ -379,7 +456,17 @@ class StoryViewModel(
                 _aiState.value = AiUiState.Success("Imported ${items.size} $category card(s) via quick parser.")
                 onComplete()
             } else {
-                val res = aiParser.parseWorldItemsWithGemini(rawText, category, story, currentUserId, startOrder)
+                val res = aiParser.parseWorldItemsWithAi(
+                    rawText = rawText,
+                    category = category,
+                    story = story,
+                    ownerId = currentUserId,
+                    startOrder = startOrder,
+                    provider = settings.aiProvider,
+                    modelName = settings.aiModel,
+                    endpointUrl = settings.aiEndpointUrl,
+                    apiKeyOverride = settings.aiApiKey,
+                )
                 res.onSuccess { items ->
                     items.forEach { repository.saveWorldItem(story, it) }
                     _aiState.value = AiUiState.Success("AI imported ${items.size} $category card(s).")
@@ -396,9 +483,16 @@ class StoryViewModel(
         onParsed: (Map<String, EquipmentSlotItem>) -> Unit,
     ) {
         if (rawText.isBlank()) return
+        val settings = userSettings.value
         viewModelScope.launch {
             _aiState.value = AiUiState.Loading
-            aiParser.parseEquipmentWithGemini(rawText)
+            aiParser.parseEquipmentWithAi(
+                rawText = rawText,
+                provider = settings.aiProvider,
+                modelName = settings.aiModel,
+                endpointUrl = settings.aiEndpointUrl,
+                apiKeyOverride = settings.aiApiKey,
+            )
                 .onSuccess { slots ->
                     _aiState.value = AiUiState.Success("Mapped ${slots.size} equipment slot(s).")
                     onParsed(slots)

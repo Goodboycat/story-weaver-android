@@ -5,6 +5,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.ai.AiModelDefaults
+import com.example.ai.AiProvider
+import com.example.ai.UnorouterClient
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -42,6 +45,10 @@ data class UserSettings(
     val customAccentArgb: Long? = null,
     val textScale: TextScalePreset = TextScalePreset.MEDIUM,
     val languageCode: String = "en",
+    val aiProvider: AiProvider = if (UnorouterClient.hasBuildConfigKey()) AiProvider.UNOROUTER else AiProvider.GEMINI,
+    val aiModel: String = if (UnorouterClient.hasBuildConfigKey()) AiModelDefaults.DEFAULT_UNOROUTER_MODEL else AiModelDefaults.DEFAULT_GEMINI_MODEL,
+    val aiEndpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
+    val aiApiKey: String = "",
 )
 
 class PreferencesRepository(private val context: Context) {
@@ -51,14 +58,32 @@ class PreferencesRepository(private val context: Context) {
         val TEXT_SCALE = stringPreferencesKey("text_scale")
         val LANGUAGE = stringPreferencesKey("language_code")
         val QUICK_MAP_ASSETS = stringPreferencesKey("quick_map_assets_json")
+        val AI_PROVIDER = stringPreferencesKey("ai_provider")
+        val AI_MODEL = stringPreferencesKey("ai_model")
+        val AI_ENDPOINT_URL = stringPreferencesKey("ai_endpoint_url")
+        val AI_API_KEY = stringPreferencesKey("ai_api_key")
     }
 
     val settingsFlow: Flow<UserSettings> = context.storyWeaverDataStore.data.map { prefs ->
+        val storedKey = prefs[Keys.AI_API_KEY].orEmpty()
+        val hasAnyKey = UnorouterClient.isConfigured(storedKey)
+        val defaultProvider = if (hasAnyKey) AiProvider.UNOROUTER else AiProvider.GEMINI
+        val provider = prefs[Keys.AI_PROVIDER]?.let { AiProvider.fromKey(it) } ?: defaultProvider
+        val defaultModel = if (provider == AiProvider.UNOROUTER) {
+            AiModelDefaults.DEFAULT_UNOROUTER_MODEL
+        } else {
+            AiModelDefaults.DEFAULT_GEMINI_MODEL
+        }
         UserSettings(
             themePreset = ThemePreset.fromKey(prefs[Keys.THEME_PRESET]),
             customAccentArgb = prefs[Keys.CUSTOM_ACCENT]?.takeIf { it != 0L },
             textScale = TextScalePreset.fromKey(prefs[Keys.TEXT_SCALE]),
             languageCode = prefs[Keys.LANGUAGE] ?: "en",
+            aiProvider = provider,
+            aiModel = prefs[Keys.AI_MODEL]?.takeIf { it.isNotBlank() } ?: defaultModel,
+            aiEndpointUrl = prefs[Keys.AI_ENDPOINT_URL]?.takeIf { it.isNotBlank() }
+                ?: AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
+            aiApiKey = storedKey,
         )
     }
 
@@ -83,6 +108,37 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setLanguage(code: String) {
         context.storyWeaverDataStore.edit { it[Keys.LANGUAGE] = code }
+    }
+
+    suspend fun setAiProvider(provider: AiProvider) {
+        context.storyWeaverDataStore.edit { prefs ->
+            prefs[Keys.AI_PROVIDER] = provider.key
+            val currentModel = prefs[Keys.AI_MODEL].orEmpty()
+            if (provider == AiProvider.UNOROUTER && (currentModel.isBlank() || currentModel.startsWith("gemini"))) {
+                prefs[Keys.AI_MODEL] = AiModelDefaults.DEFAULT_UNOROUTER_MODEL
+            } else if (provider == AiProvider.GEMINI && (currentModel.isBlank() || !currentModel.startsWith("gemini"))) {
+                prefs[Keys.AI_MODEL] = AiModelDefaults.DEFAULT_GEMINI_MODEL
+            }
+        }
+    }
+
+    suspend fun setAiModel(model: String) {
+        val clean = model.trim()
+        if (clean.isEmpty()) return
+        context.storyWeaverDataStore.edit { it[Keys.AI_MODEL] = clean }
+    }
+
+    suspend fun setAiEndpointUrl(url: String) {
+        val clean = url.trim().ifBlank { AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT }
+        context.storyWeaverDataStore.edit { it[Keys.AI_ENDPOINT_URL] = clean }
+    }
+
+    suspend fun setAiApiKey(apiKey: String) {
+        val clean = apiKey.trim()
+        context.storyWeaverDataStore.edit { prefs ->
+            if (clean.isEmpty()) prefs.remove(Keys.AI_API_KEY)
+            else prefs[Keys.AI_API_KEY] = clean
+        }
     }
 
     suspend fun saveQuickMapAssets(assets: List<QuickMapAsset>) {

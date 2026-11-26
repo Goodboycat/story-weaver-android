@@ -47,11 +47,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.ai.AiChatUiState
 import com.example.ai.AiPromptTemplates
+import com.example.ai.AiProvider
 import com.example.data.Character
 import com.example.data.EquipmentSlotItem
 import com.example.data.JsonCodecs
 import com.example.data.Story
+import com.example.data.UserSettings
 import com.example.ui.components.AiImportDialog
 import com.example.ui.components.IdeaGuideDialog
 import com.example.ui.components.ImagePickerUtil
@@ -65,6 +68,11 @@ fun EntitiesTab(
     currentUserId: String,
     isGmMode: Boolean,
     aiState: AiUiState,
+    userSettings: UserSettings,
+    aiChatState: AiChatUiState,
+    onSelectAiProvider: (AiProvider) -> Unit,
+    onSelectAiModel: (String) -> Unit,
+    onSendAiChat: (String) -> Unit,
     onSaveCharacter: (Character) -> Unit,
     onDeleteCharacters: (List<String>) -> Unit,
     onImportAi: (rawText: String, useRegex: Boolean, onDone: () -> Unit) -> Unit,
@@ -205,7 +213,7 @@ fun EntitiesTab(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 84.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(visibleList, key = { it.id }) { char ->
@@ -298,6 +306,11 @@ fun EntitiesTab(
             initialCharacter = target,
             canEdit = canEdit,
             aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSelectAiProvider = onSelectAiProvider,
+            onSelectAiModel = onSelectAiModel,
+            onSendAiChat = onSendAiChat,
             onParseEquipmentAi = onParseEquipmentAi,
             onResetAiState = onResetAiState,
             onSave = { updated ->
@@ -314,6 +327,11 @@ fun EntitiesTab(
             promptTemplate = AiPromptTemplates.characterPrompt(kind),
             placeholder = "Paste character notes or stat blocks:\nGoblin Skirmisher (HP: 14, AC: 13)\nClass: Ambush Raider...",
             aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSelectProvider = onSelectAiProvider,
+            onSelectModel = onSelectAiModel,
+            onSendAiChat = onSendAiChat,
             onDismiss = { showAiImport = false },
             onImport = { raw, useRegex ->
                 onImportAi(raw, useRegex) {

@@ -341,6 +341,10 @@ fun DashboardScreen(
             onSelectAccent = { viewModel.setCustomAccent(it) },
             onSelectTextScale = { viewModel.setTextScale(it) },
             onSelectLanguage = { viewModel.setLanguage(it) },
+            onSelectAiProvider = { viewModel.setAiProvider(it) },
+            onSelectAiModel = { viewModel.setAiModel(it) },
+            onSelectAiEndpointUrl = { viewModel.setAiEndpointUrl(it) },
+            onSelectAiApiKey = { viewModel.setAiApiKey(it) },
             onSignOut = {
                 showSettings = false
                 onSignOut()

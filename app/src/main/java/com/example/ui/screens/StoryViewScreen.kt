@@ -68,8 +68,11 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ai.AiChatUiState
 import com.example.data.AppStrings
+import com.example.data.UserSettings
 import com.example.notifications.SessionNotificationScheduler
+import com.example.ui.components.AiChatDialog
 import com.example.ui.components.DiceRollerBottomSheet
 import com.example.ui.components.SessionScheduleDialog
 import com.example.ui.tabs.ChatTab
@@ -106,8 +109,10 @@ fun StoryViewScreen(
     val messagesState by viewModel.messagesState.collectAsStateWithLifecycle()
     val logsState by viewModel.logsState.collectAsStateWithLifecycle()
     val quickAssets by viewModel.quickMapAssets.collectAsStateWithLifecycle()
+    val userSettings by viewModel.userSettings.collectAsStateWithLifecycle()
     val viewAsPlayer by viewModel.viewAsPlayer.collectAsStateWithLifecycle()
     val aiState by viewModel.aiState.collectAsStateWithLifecycle()
+    val aiChatState by viewModel.aiChatState.collectAsStateWithLifecycle()
     val toastMessage by viewModel.toastMessage.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -115,6 +120,7 @@ fun StoryViewScreen(
     val context = LocalContext.current
     var showDiceRoller by remember { mutableStateOf(false) }
     var showScheduleDialog by remember { mutableStateOf(false) }
+    var showAiChat by remember { mutableStateOf(false) }
 
     LaunchedEffect(toastMessage) {
         toastMessage?.let {
@@ -218,6 +224,18 @@ fun StoryViewScreen(
                     }
                 },
                 actions = {
+                    if (story != null && activeTab.id == StoryTabId.CHAT) {
+                        IconButton(
+                            onClick = { showDiceRoller = true },
+                            modifier = Modifier.testTag("open_dice_roller_chat_top_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Casino,
+                                contentDescription = strings.diceRoller,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     if (story != null) {
                         IconButton(
                             onClick = { showScheduleDialog = true },
@@ -253,7 +271,7 @@ fun StoryViewScreen(
             )
         },
         floatingActionButton = {
-            if (story != null) {
+            if (story != null && activeTab.id != StoryTabId.CHAT) {
                 FloatingActionButton(
                     onClick = { showDiceRoller = true },
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -316,7 +334,10 @@ fun StoryViewScreen(
                                         messages = messages,
                                         logs = logs,
                                         quickAssets = quickAssets,
-                                        aiState = aiState
+                                        aiState = aiState,
+                                        userSettings = userSettings,
+                                        aiChatState = aiChatState,
+                                        onOpenAiChat = { showAiChat = true },
                                     )
                                 }
                             }
@@ -348,7 +369,10 @@ fun StoryViewScreen(
                                         messages = messages,
                                         logs = logs,
                                         quickAssets = quickAssets,
-                                        aiState = aiState
+                                        aiState = aiState,
+                                        userSettings = userSettings,
+                                        aiChatState = aiChatState,
+                                        onOpenAiChat = { showAiChat = true },
                                     )
                                 }
                             }
@@ -367,6 +391,22 @@ fun StoryViewScreen(
             onRoll = { terms, mods ->
                 viewModel.rollDice(story, terms, mods, userDisplayName)
             }
+        )
+    }
+
+    if (showAiChat && story != null) {
+        AiChatDialog(
+            storyTitle = story.title,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSendMessage = { prompt -> viewModel.sendAiChatMessage(story, prompt) },
+            onClearChat = { viewModel.clearAiChat() },
+            onSelectProvider = { viewModel.setAiProvider(it) },
+            onSelectModel = { viewModel.setAiModel(it) },
+            onPostToPartyChat = { reply ->
+                viewModel.sendChatMessage(story, "🤖 AI (${userSettings.aiModel}):\n$reply")
+            },
+            onDismiss = { showAiChat = false }
         )
     }
 
@@ -406,6 +446,9 @@ private fun StoryTabContent(
     logs: List<com.example.data.ActivityLog>,
     quickAssets: List<com.example.data.QuickMapAsset>,
     aiState: com.example.viewmodel.AiUiState,
+    userSettings: UserSettings,
+    aiChatState: AiChatUiState,
+    onOpenAiChat: () -> Unit,
 ) {
     when (tabId) {
         StoryTabId.GUIDE -> GuideTab(
@@ -420,6 +463,11 @@ private fun StoryTabContent(
             currentUserId = viewModel.currentUserId,
             isGmMode = isGmMode,
             aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSelectAiProvider = { viewModel.setAiProvider(it) },
+            onSelectAiModel = { viewModel.setAiModel(it) },
+            onSendAiChat = { viewModel.sendAiChatMessage(story, it, "player characters") },
             onSaveCharacter = { viewModel.saveCharacter(story, it) },
             onDeleteCharacters = { viewModel.deleteCharacters(story, it) },
             onImportAi = { raw, regex, done ->
@@ -435,6 +483,11 @@ private fun StoryTabContent(
             currentUserId = viewModel.currentUserId,
             isGmMode = isGmMode,
             aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSelectAiProvider = { viewModel.setAiProvider(it) },
+            onSelectAiModel = { viewModel.setAiModel(it) },
+            onSendAiChat = { viewModel.sendAiChatMessage(story, it, "NPCs") },
             onSaveCharacter = { viewModel.saveCharacter(story, it) },
             onDeleteCharacters = { viewModel.deleteCharacters(story, it) },
             onImportAi = { raw, regex, done ->
@@ -450,6 +503,11 @@ private fun StoryTabContent(
             currentUserId = viewModel.currentUserId,
             isGmMode = isGmMode,
             aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSelectAiProvider = { viewModel.setAiProvider(it) },
+            onSelectAiModel = { viewModel.setAiModel(it) },
+            onSendAiChat = { viewModel.sendAiChatMessage(story, it, "monsters & encounters") },
             onSaveCharacter = { viewModel.saveCharacter(story, it) },
             onDeleteCharacters = { viewModel.deleteCharacters(story, it) },
             onImportAi = { raw, regex, done ->
@@ -476,6 +534,11 @@ private fun StoryTabContent(
             currentUserId = viewModel.currentUserId,
             isGmMode = isGmMode,
             aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSelectAiProvider = { viewModel.setAiProvider(it) },
+            onSelectAiModel = { viewModel.setAiModel(it) },
+            onSendAiChat = { viewModel.sendAiChatMessage(story, it, "locations") },
             onSaveItem = { viewModel.saveWorldItem(story, it) },
             onReorder = { viewModel.reorderWorldItems(story, it) },
             onDeleteItems = { viewModel.deleteWorldItems(story, it) },
@@ -491,6 +554,11 @@ private fun StoryTabContent(
             currentUserId = viewModel.currentUserId,
             isGmMode = isGmMode,
             aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSelectAiProvider = { viewModel.setAiProvider(it) },
+            onSelectAiModel = { viewModel.setAiModel(it) },
+            onSendAiChat = { viewModel.sendAiChatMessage(story, it, "powers & spells") },
             onSaveItem = { viewModel.saveWorldItem(story, it) },
             onReorder = { viewModel.reorderWorldItems(story, it) },
             onDeleteItems = { viewModel.deleteWorldItems(story, it) },
@@ -506,6 +574,11 @@ private fun StoryTabContent(
             currentUserId = viewModel.currentUserId,
             isGmMode = isGmMode,
             aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSelectAiProvider = { viewModel.setAiProvider(it) },
+            onSelectAiModel = { viewModel.setAiModel(it) },
+            onSendAiChat = { viewModel.sendAiChatMessage(story, it, "campaign notes") },
             onSaveItem = { viewModel.saveWorldItem(story, it) },
             onReorder = { viewModel.reorderWorldItems(story, it) },
             onDeleteItems = { viewModel.deleteWorldItems(story, it) },
@@ -519,6 +592,8 @@ private fun StoryTabContent(
             strings = strings,
             messages = messages,
             currentUserId = viewModel.currentUserId,
+            activeAiModelLabel = userSettings.aiModel,
+            onOpenAiChat = onOpenAiChat,
             onSendMessage = { viewModel.sendChatMessage(story, it) }
         )
         StoryTabId.LOGS -> LogsTab(logs = logs)

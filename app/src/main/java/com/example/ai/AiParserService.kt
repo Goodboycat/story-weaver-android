@@ -128,47 +128,122 @@ class AiParserService {
         )
     )
 
-    private val characterModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = "gemini-3.8-flash",
-            generationConfig = generationConfig {
-                responseMimeType = "application/json"
-                responseSchema = characterSchema
+    suspend fun chatWithAi(
+        history: List<AiChatMessage>,
+        story: Story?,
+        provider: AiProvider,
+        modelName: String,
+        endpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
+        apiKeyOverride: String = "",
+        contextHint: String? = null,
+    ): Result<String> {
+        val systemPrompt = buildString {
+            append("You are an expert tabletop RPG co-GM and worldbuilding assistant inside Story Weaver. ")
+            if (story != null) {
+                append("Active campaign: \"${story.title}\" (${story.systemName}). ")
+                if (story.description.isNotBlank()) {
+                    append("Premise: ${story.description}. ")
+                }
             }
-        )
+            if (!contextHint.isNullOrBlank()) {
+                append("Current section: $contextHint. ")
+            }
+            append("Give vivid, structured, ready-to-play tabletop responses (stat blocks, hooks, lore, items, or rulings) that fit easily into the app's parser.")
+        }
+
+        return when (provider) {
+            AiProvider.UNOROUTER -> {
+                val payloadMessages = buildList {
+                    add("system" to systemPrompt)
+                    history.takeLast(16).forEach { msg ->
+                        if (msg.role == "user" || msg.role == "assistant") {
+                            add(msg.role to msg.content)
+                        }
+                    }
+                }
+                val resolvedModel = modelName.trim().ifBlank { AiModelDefaults.DEFAULT_UNOROUTER_MODEL }
+                UnorouterClient.sendChatCompletion(
+                    model = resolvedModel,
+                    messages = payloadMessages,
+                    endpointUrl = endpointUrl,
+                    apiKeyOverride = apiKeyOverride,
+                )
+            }
+            AiProvider.GEMINI -> {
+                try {
+                    val resolvedModel = modelName.trim().ifBlank { AiModelDefaults.DEFAULT_GEMINI_MODEL }
+                    val chatModel = Firebase.ai.generativeModel(modelName = resolvedModel)
+                    val transcript = buildString {
+                        appendLine(systemPrompt)
+                        appendLine()
+                        history.takeLast(16).forEach { msg ->
+                            val speaker = if (msg.role == "user") "User" else "Assistant"
+                            appendLine("$speaker: ${msg.content}")
+                        }
+                        append("Assistant:")
+                    }
+                    val response = withTimeout(60_000L) {
+                        chatModel.generateContent(transcript)
+                    }
+                    val text = response.text?.trim()
+                        ?: throw IllegalStateException("Empty Gemini response.")
+                    Result.success(text)
+                } catch (e: TimeoutCancellationException) {
+                    Log.e(TAG, "Gemini chat timed out", e)
+                    Result.failure(IllegalStateException("AI chat timed out after 60 seconds."))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Gemini chat failed", e)
+                    Result.failure(e)
+                }
+            }
+        }
     }
 
-    private val worldItemModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = "gemini-3.8-flash",
-            generationConfig = generationConfig {
-                responseMimeType = "application/json"
-                responseSchema = worldItemSchema
-            }
-        )
-    }
-
-    private val equipmentModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = "gemini-3.8-flash",
-            generationConfig = generationConfig {
-                responseMimeType = "application/json"
-                responseSchema = equipmentSchema
-            }
-        )
-    }
-
-    suspend fun parseCharactersWithGemini(
+    suspend fun parseCharactersWithAi(
         rawText: String,
         kind: String,
         story: Story,
         ownerId: String,
+        provider: AiProvider,
+        modelName: String,
+        endpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
+        apiKeyOverride: String = "",
     ): Result<List<Character>> = try {
-        val prompt = "${AiPromptTemplates.characterPrompt(kind)}\n\nCampaign: ${story.title} (${story.systemName})\n\nInput:\n$rawText"
-        val response = withTimeout(60_000L) {
-            characterModel.generateContent(prompt)
+        val jsonText = when (provider) {
+            AiProvider.UNOROUTER -> {
+                val sys = """
+                    You are a strict JSON parser for a tabletop RPG app.
+                    Return ONLY a valid JSON object matching this schema (no markdown or extra prose):
+                    {"items":[{"name":"string","roleTitle":"string","level":1,"hpMax":12,"ac":12,"notes":"string","avatarEmoji":"🛡️","powers":["string"],"inventory":["string"]}]}
+                """.trimIndent()
+                val userPrompt = "${AiPromptTemplates.characterPrompt(kind)}\n\nCampaign: ${story.title} (${story.systemName})\n\nInput:\n$rawText"
+                val resolved = modelName.trim().ifBlank { AiModelDefaults.DEFAULT_UNOROUTER_MODEL }
+                val raw = UnorouterClient.sendChatCompletion(
+                    model = resolved,
+                    messages = listOf("system" to sys, "user" to userPrompt),
+                    endpointUrl = endpointUrl,
+                    apiKeyOverride = apiKeyOverride,
+                    temperature = 0.2
+                ).getOrThrow()
+                UnorouterClient.extractJsonObject(raw)
+            }
+            AiProvider.GEMINI -> {
+                val resolved = modelName.trim().ifBlank { AiModelDefaults.DEFAULT_GEMINI_MODEL }
+                val model = Firebase.ai.generativeModel(
+                    modelName = resolved,
+                    generationConfig = generationConfig {
+                        responseMimeType = "application/json"
+                        responseSchema = characterSchema
+                    }
+                )
+                val prompt = "${AiPromptTemplates.characterPrompt(kind)}\n\nCampaign: ${story.title} (${story.systemName})\n\nInput:\n$rawText"
+                val response = withTimeout(60_000L) { model.generateContent(prompt) }
+                response.text ?: throw IllegalStateException("Empty AI response.")
+            }
         }
-        val jsonText = response.text ?: throw IllegalStateException("Empty AI response.")
+
         val root = JSONObject(jsonText)
         val arr = root.getJSONArray("items")
         val parsed = (0 until arr.length()).map { i ->
@@ -227,27 +302,59 @@ class AiParserService {
         }
         Result.success(parsed)
     } catch (e: TimeoutCancellationException) {
-        Log.e(TAG, "Gemini character parse timed out", e)
+        Log.e(TAG, "AI character parse timed out", e)
         Result.failure(IllegalStateException("AI parsing timed out after 60 seconds. Please try again."))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.e(TAG, "Gemini character parse failed", e)
+        Log.e(TAG, "AI character parse failed", e)
         Result.failure(e)
     }
 
-    suspend fun parseWorldItemsWithGemini(
+    suspend fun parseWorldItemsWithAi(
         rawText: String,
         category: String,
         story: Story,
         ownerId: String,
         startOrder: Int,
+        provider: AiProvider,
+        modelName: String,
+        endpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
+        apiKeyOverride: String = "",
     ): Result<List<WorldItem>> = try {
-        val prompt = "${AiPromptTemplates.worldItemPrompt(category)}\n\nCampaign: ${story.title} (${story.systemName})\n\nInput:\n$rawText"
-        val response = withTimeout(60_000L) {
-            worldItemModel.generateContent(prompt)
+        val jsonText = when (provider) {
+            AiProvider.UNOROUTER -> {
+                val sys = """
+                    You are a strict JSON parser for a tabletop RPG app.
+                    Return ONLY a valid JSON object matching this schema (no markdown or extra prose):
+                    {"items":[{"title":"string","subtitle":"string","description":"string","iconEmoji":"📜","tags":["tag1","tag2"]}]}
+                """.trimIndent()
+                val userPrompt = "${AiPromptTemplates.worldItemPrompt(category)}\n\nCampaign: ${story.title} (${story.systemName})\n\nInput:\n$rawText"
+                val resolved = modelName.trim().ifBlank { AiModelDefaults.DEFAULT_UNOROUTER_MODEL }
+                val raw = UnorouterClient.sendChatCompletion(
+                    model = resolved,
+                    messages = listOf("system" to sys, "user" to userPrompt),
+                    endpointUrl = endpointUrl,
+                    apiKeyOverride = apiKeyOverride,
+                    temperature = 0.2
+                ).getOrThrow()
+                UnorouterClient.extractJsonObject(raw)
+            }
+            AiProvider.GEMINI -> {
+                val resolved = modelName.trim().ifBlank { AiModelDefaults.DEFAULT_GEMINI_MODEL }
+                val model = Firebase.ai.generativeModel(
+                    modelName = resolved,
+                    generationConfig = generationConfig {
+                        responseMimeType = "application/json"
+                        responseSchema = worldItemSchema
+                    }
+                )
+                val prompt = "${AiPromptTemplates.worldItemPrompt(category)}\n\nCampaign: ${story.title} (${story.systemName})\n\nInput:\n$rawText"
+                val response = withTimeout(60_000L) { model.generateContent(prompt) }
+                response.text ?: throw IllegalStateException("Empty AI response.")
+            }
         }
-        val jsonText = response.text ?: throw IllegalStateException("Empty AI response.")
+
         val root = JSONObject(jsonText)
         val arr = root.getJSONArray("items")
         val parsed = (0 until arr.length()).map { i ->
@@ -288,23 +395,57 @@ class AiParserService {
         }
         Result.success(parsed)
     } catch (e: TimeoutCancellationException) {
-        Log.e(TAG, "Gemini world item parse timed out", e)
+        Log.e(TAG, "AI world item parse timed out", e)
         Result.failure(IllegalStateException("AI parsing timed out after 60 seconds. Please try again."))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.e(TAG, "Gemini world item parse failed", e)
+        Log.e(TAG, "AI world item parse failed", e)
         Result.failure(e)
     }
 
-    suspend fun parseEquipmentWithGemini(
+    suspend fun parseEquipmentWithAi(
         rawText: String,
+        provider: AiProvider,
+        modelName: String,
+        endpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
+        apiKeyOverride: String = "",
     ): Result<Map<String, EquipmentSlotItem>> = try {
-        val prompt = "${AiPromptTemplates.equipmentPrompt()}\n\nEquipment description:\n$rawText"
-        val response = withTimeout(60_000L) {
-            equipmentModel.generateContent(prompt)
+        val allowedSlots = EquipmentSlot.entries.joinToString(", ") { it.key }
+        val jsonText = when (provider) {
+            AiProvider.UNOROUTER -> {
+                val sys = """
+                    You are a strict JSON parser for a tabletop RPG app.
+                    Allowed slotKey values: $allowedSlots.
+                    Return ONLY a valid JSON object matching this schema (no markdown or extra prose):
+                    {"slots":[{"slotKey":"chest","itemName":"string","bonus":"+1 AC","notes":"string"}]}
+                """.trimIndent()
+                val userPrompt = "${AiPromptTemplates.equipmentPrompt()}\n\nEquipment description:\n$rawText"
+                val resolved = modelName.trim().ifBlank { AiModelDefaults.DEFAULT_UNOROUTER_MODEL }
+                val raw = UnorouterClient.sendChatCompletion(
+                    model = resolved,
+                    messages = listOf("system" to sys, "user" to userPrompt),
+                    endpointUrl = endpointUrl,
+                    apiKeyOverride = apiKeyOverride,
+                    temperature = 0.2
+                ).getOrThrow()
+                UnorouterClient.extractJsonObject(raw)
+            }
+            AiProvider.GEMINI -> {
+                val resolved = modelName.trim().ifBlank { AiModelDefaults.DEFAULT_GEMINI_MODEL }
+                val model = Firebase.ai.generativeModel(
+                    modelName = resolved,
+                    generationConfig = generationConfig {
+                        responseMimeType = "application/json"
+                        responseSchema = equipmentSchema
+                    }
+                )
+                val prompt = "${AiPromptTemplates.equipmentPrompt()}\n\nEquipment description:\n$rawText"
+                val response = withTimeout(60_000L) { model.generateContent(prompt) }
+                response.text ?: throw IllegalStateException("Empty AI response.")
+            }
         }
-        val jsonText = response.text ?: throw IllegalStateException("Empty AI response.")
+
         val root = JSONObject(jsonText)
         val arr = root.getJSONArray("slots")
         val result = mutableMapOf<String, EquipmentSlotItem>()
@@ -322,12 +463,12 @@ class AiParserService {
         }
         Result.success(result)
     } catch (e: TimeoutCancellationException) {
-        Log.e(TAG, "Gemini equipment parse timed out", e)
+        Log.e(TAG, "AI equipment parse timed out", e)
         Result.failure(IllegalStateException("AI parsing timed out after 60 seconds. Please try again."))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.e(TAG, "Gemini equipment parse failed", e)
+        Log.e(TAG, "AI equipment parse failed", e)
         Result.failure(e)
     }
 

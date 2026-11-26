@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Lightbulb
@@ -63,10 +65,11 @@ fun ChatTab(
     strings: AppStrings,
     messages: List<ChatMessage>,
     currentUserId: String,
+    activeAiModelLabel: String,
+    onOpenAiChat: () -> Unit,
     onSendMessage: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    var draft by remember { mutableStateOf("") }
     var showGuide by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
@@ -171,6 +174,18 @@ fun ChatTab(
                         Icon(Icons.Default.ContentCopy, contentDescription = "Copy Voice Room Link")
                     }
                 }
+                OutlinedButton(
+                    onClick = onOpenAiChat,
+                    modifier = Modifier.fillMaxWidth().testTag("open_ai_chat_button")
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "AI Assistant Chat ($activeAiModelLabel)",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
 
@@ -245,37 +260,51 @@ fun ChatTab(
             }
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                placeholder = { Text("Message party...") },
-                singleLine = true,
-                modifier = Modifier.weight(1f).testTag("chat_message_input")
-            )
-            Button(
-                onClick = {
-                    val text = draft.trim()
-                    if (text.isNotEmpty()) {
-                        onSendMessage(text)
-                        draft = ""
-                    }
-                },
-                enabled = draft.isNotBlank(),
-                modifier = Modifier.testTag("chat_send_button")
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = strings.sendMessage)
-            }
-        }
+        ChatComposer(
+            sendDescription = strings.sendMessage,
+            onSendMessage = onSendMessage
+        )
     }
 
     if (showGuide) {
         IdeaGuideDialog(guideKey = "chat", onDismiss = { showGuide = false })
+    }
+}
+
+@Composable
+private fun ChatComposer(
+    sendDescription: String,
+    onSendMessage: (String) -> Unit,
+) {
+    var draft by remember { mutableStateOf("") }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it },
+            placeholder = { Text("Message party...") },
+            singleLine = true,
+            modifier = Modifier.weight(1f).testTag("chat_message_input")
+        )
+        Button(
+            onClick = {
+                val text = draft.trim()
+                if (text.isNotEmpty()) {
+                    onSendMessage(text)
+                    draft = ""
+                }
+            },
+            enabled = draft.isNotBlank(),
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .testTag("chat_send_button")
+        ) {
+            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = sendDescription)
+        }
     }
 }

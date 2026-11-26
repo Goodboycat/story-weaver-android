@@ -68,7 +68,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.ai.AiChatUiState
 import com.example.ai.AiPromptTemplates
+import com.example.ai.AiProvider
 import com.example.data.Character
 import com.example.data.EquipmentSlot
 import com.example.data.EquipmentSlotItem
@@ -76,6 +78,7 @@ import com.example.data.InventoryEntry
 import com.example.data.JsonCodecs
 import com.example.data.MissionEntry
 import com.example.data.PowerEntry
+import com.example.data.UserSettings
 import com.example.ui.components.AiImportDialog
 import com.example.ui.components.IdeaGuideDialog
 import com.example.ui.components.ImagePickerUtil
@@ -89,6 +92,11 @@ fun CharacterSheetDialog(
     initialCharacter: Character,
     canEdit: Boolean,
     aiState: AiUiState,
+    userSettings: UserSettings,
+    aiChatState: AiChatUiState,
+    onSelectAiProvider: (AiProvider) -> Unit,
+    onSelectAiModel: (String) -> Unit,
+    onSendAiChat: (String) -> Unit,
     onParseEquipmentAi: (rawText: String, onParsed: (Map<String, EquipmentSlotItem>) -> Unit) -> Unit,
     onResetAiState: () -> Unit,
     onSave: (Character) -> Unit,
@@ -727,6 +735,11 @@ fun CharacterSheetDialog(
             promptTemplate = AiPromptTemplates.equipmentPrompt(),
             placeholder = "Example: Wears mithril chainmail (+2 AC), a shadow cloak for stealth, brass spyglass goggles, and wields a flaming longsword...",
             aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSelectProvider = onSelectAiProvider,
+            onSelectModel = onSelectAiModel,
+            onSendAiChat = onSendAiChat,
             onDismiss = { showEquipmentAi = false },
             onImport = { rawText, _ ->
                 onParseEquipmentAi(rawText) { parsedSlots ->

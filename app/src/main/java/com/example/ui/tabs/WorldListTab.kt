@@ -49,10 +49,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.ai.AiChatUiState
 import com.example.ai.AiPromptTemplates
+import com.example.ai.AiProvider
 import com.example.ai.EmojiHelper
 import com.example.data.JsonCodecs
 import com.example.data.Story
+import com.example.data.UserSettings
 import com.example.data.WorldItem
 import com.example.ui.components.AiImportDialog
 import com.example.ui.components.IdeaGuideDialog
@@ -67,6 +70,11 @@ fun WorldListTab(
     currentUserId: String,
     isGmMode: Boolean,
     aiState: AiUiState,
+    userSettings: UserSettings,
+    aiChatState: AiChatUiState,
+    onSelectAiProvider: (AiProvider) -> Unit,
+    onSelectAiModel: (String) -> Unit,
+    onSendAiChat: (String) -> Unit,
     onSaveItem: (WorldItem) -> Unit,
     onReorder: (List<WorldItem>) -> Unit,
     onDeleteItems: (List<String>) -> Unit,
@@ -199,7 +207,7 @@ fun WorldListTab(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 84.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 itemsIndexed(visible, key = { _, item -> item.id }) { index, item ->
@@ -394,6 +402,11 @@ fun WorldListTab(
             promptTemplate = AiPromptTemplates.worldItemPrompt(category),
             placeholder = "Paste notes separated by blank lines or paragraphs...",
             aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSelectProvider = onSelectAiProvider,
+            onSelectModel = onSelectAiModel,
+            onSendAiChat = onSendAiChat,
             onDismiss = { showAiImport = false },
             onImport = { raw, useRegex ->
                 onImportAi(raw, categoryItems.size, useRegex) {

@@ -44,11 +44,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.example.ai.AiProvider
 import com.example.data.AppStrings
 import com.example.data.Localization
 import com.example.data.TextScalePreset
 import com.example.data.ThemePreset
 import com.example.data.UserSettings
+import com.example.ui.components.AiModelSelectorBar
 import com.example.ui.theme.AccentSwatches
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -61,6 +63,10 @@ fun SettingsSheet(
     onSelectAccent: (Long?) -> Unit,
     onSelectTextScale: (TextScalePreset) -> Unit,
     onSelectLanguage: (String) -> Unit,
+    onSelectAiProvider: (AiProvider) -> Unit,
+    onSelectAiModel: (String) -> Unit,
+    onSelectAiEndpointUrl: (String) -> Unit,
+    onSelectAiApiKey: (String) -> Unit,
     onSignOut: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -197,6 +203,18 @@ fun SettingsSheet(
 
             HorizontalDivider()
 
+            AiModelSelectorBar(
+                selectedProvider = settings.aiProvider,
+                selectedModel = settings.aiModel,
+                onSelectProvider = onSelectAiProvider,
+                onSelectModel = onSelectAiModel,
+                endpointUrl = settings.aiEndpointUrl,
+                apiKey = settings.aiApiKey,
+                onSelectEndpointUrl = onSelectAiEndpointUrl,
+                onSelectApiKey = onSelectAiApiKey,
+                showAdvancedApiConfig = true,
+            )
+
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                 shape = MaterialTheme.shapes.medium,
@@ -206,7 +224,7 @@ fun SettingsSheet(
                     Text("Story Weaver Mobile", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Native Android Jetpack Compose + Cloud Firestore + Firebase AI Logic.",
+                        "Native Android Jetpack Compose + Cloud Firestore + Firebase AI Logic & Unorouter API.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
