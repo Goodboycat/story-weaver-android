@@ -49,6 +49,7 @@ jobs:
                 -dname "CN=Android Debug,O=Android,C=US"
             fi
           fi
+          keytool -list -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android | grep -E "SHA1:|SHA256:" || true
 
       - name: Configure Firebase google-services.json from secret
         env:

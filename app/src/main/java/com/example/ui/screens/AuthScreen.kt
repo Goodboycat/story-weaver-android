@@ -49,11 +49,14 @@ import androidx.credentials.CredentialManager
 import com.example.auth.attemptAutoSignIn
 import com.example.auth.onGoogleSignInClicked
 import com.example.data.AppStrings
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
 
 @Composable
 fun AuthScreen(
     strings: AppStrings,
-    onAuthSuccess: () -> Unit,
+    onAuthSuccess: (FirebaseUser?) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -68,7 +71,7 @@ fun AuthScreen(
         attemptAutoSignIn(
             context = context,
             credentialManager = cm,
-            onAuthSuccess = onAuthSuccess,
+            onAuthSuccess = { onAuthSuccess(Firebase.auth.currentUser) },
             onUnauthenticated = {},
             scope = scope
         )
@@ -162,17 +165,22 @@ fun AuthScreen(
                     onGoogleSignInClicked(
                         context = context,
                         credentialManager = cm,
-                        onAuthSuccess = {
+                        onAuthSuccess = { signedInUser ->
                             isLoading = false
-                            onAuthSuccess()
+                            onAuthSuccess(signedInUser)
                         },
                         onAuthError = { msg ->
                             isLoading = false
                             errorMessage = msg
                         },
                         scope = scope,
-                        onAuthCancelled = {
+                        onAuthCancelled = { detail ->
                             isLoading = false
+                            errorMessage = if (!detail.isNullOrBlank()) {
+                                "Google Sign-In did not complete ($detail). If you selected an account, verify your Android OAuth client SHA-1 and OAuth Consent Screen Test Users."
+                            } else {
+                                "Google Sign-In was cancelled before completing."
+                            }
                         }
                     )
                 },

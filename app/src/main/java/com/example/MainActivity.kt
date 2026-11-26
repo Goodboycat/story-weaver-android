@@ -130,7 +130,9 @@ fun StoryWeaverApp() {
         if (user == null) {
             AuthScreen(
                 strings = strings,
-                onAuthSuccess = { currentUser = Firebase.auth.currentUser }
+                onAuthSuccess = { signedInUser ->
+                    currentUser = signedInUser ?: Firebase.auth.currentUser
+                }
             )
         } else if (db == null) {
             Surface(

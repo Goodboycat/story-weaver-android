@@ -22,7 +22,7 @@ Native Android Kotlin application built with **Jetpack Compose**, **Material Des
 ## Project Identifiers
 
 - **App Name**: `Story Weaver`
-- **Application ID**: `com.aistudio.storyweaver.kmrxpz`
+- **Application ID**: `com.aistudio.storyweaver.d66efx`
 - **Package Namespace**: `com.example`
 - **Min / Target / Compile SDK**: `24` / `36` / `36`
 
@@ -65,7 +65,7 @@ Copy both **SHA1** and **SHA256**.
 
 ### 4. Register the Android App & Download an Updated `google-services.json`
 1. In Firebase Console → **Project Settings → Your apps → Add app → Android**.
-2. Enter Android package name: `com.aistudio.storyweaver.kmrxpz`.
+2. Enter Android package name: `com.aistudio.storyweaver.d66efx`.
 3. Paste your **SHA-1** certificate fingerprint (and add **SHA-256** under **Add fingerprint** in Project Settings).
 4. **Re-download `google-services.json`** *after* enabling Google Sign-In and adding your SHA-1, then save it at:
    ```text
@@ -115,11 +115,7 @@ This repository includes `.github/workflows/android-debug-apk.yml`, which automa
    git remote add origin https://github.com/<your-username>/<your-repo>.git
    git push -u origin main
    ```
-2. **If `app/google-services.json` is not committed to Git** (or whenever you re-download it after enabling Google Sign-In and adding SHA-1), encode it to base64 and add/update the GitHub Repository Secret named `GOOGLE_SERVICES_JSON_BASE64`:
-   ```bash
-   base64 -w 0 app/google-services.json
-   ```
-   Add the output in **GitHub Repo → Settings → Secrets and variables → Actions → New repository secret**.
+2. **If `app/google-services.json` is not committed to Git** (for example when pushing from AI Studio, or whenever you re-download it after adding an Android app/SHA-1), add or update the GitHub Repository Secret named `GOOGLE_SERVICES_JSON_BASE64` in **GitHub Repo → Settings → Secrets and variables → Actions → New repository secret**. You can paste either the **raw `google-services.json` text** directly or its **base64** output (`base64 -w 0 app/google-services.json`).
 3. Open the **Actions** tab in GitHub, select the latest **Build Android Debug APK** run, and download **`story-weaver-debug-apk`** from **Artifacts**.
 
 ---

@@ -2,6 +2,7 @@ package com.example.auth
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
@@ -28,6 +29,12 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 private const val TAG = "Auth"
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 private fun resolveDefaultWebClientId(context: Context): String? {
     val resId = context.resources.getIdentifier(
@@ -93,10 +100,10 @@ fun attemptAutoSignIn(
 fun onGoogleSignInClicked(
     context: Context,
     credentialManager: CredentialManager,
-    onAuthSuccess: () -> Unit,
+    onAuthSuccess: (FirebaseUser?) -> Unit,
     onAuthError: (String) -> Unit,
     scope: CoroutineScope,
-    onAuthCancelled: () -> Unit = {},
+    onAuthCancelled: (String?) -> Unit = {},
 ) {
     val clientId = resolveDefaultWebClientId(context) ?: run {
         onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
@@ -108,21 +115,26 @@ fun onGoogleSignInClicked(
         .build()
     scope.launch {
         try {
-            val activity = context as? Activity
+            val activity = context.findActivity()
                 ?: throw IllegalStateException("Google Sign-In requires an Activity context.")
             val cred = credentialManager.getCredential(activity, request).credential
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
-                Firebase.auth.signInWithCredential(
+                val authResult = Firebase.auth.signInWithCredential(
                     GoogleAuthProvider.getCredential(token, null)
                 ).await()
-                onAuthSuccess()
+                val signedInUser = authResult.user ?: Firebase.auth.currentUser
+                if (signedInUser != null) {
+                    onAuthSuccess(signedInUser)
+                } else {
+                    onAuthError("Firebase sign-in returned no active user.")
+                }
             } else {
                 onAuthError("Unexpected credential type returned.")
             }
         } catch (e: GetCredentialCancellationException) {
             Log.w(TAG, "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
-            onAuthCancelled()
+            onAuthCancelled(e.message)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
