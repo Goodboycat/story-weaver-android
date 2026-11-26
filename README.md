@@ -116,7 +116,8 @@ This repository includes `.github/workflows/android-debug-apk.yml`, which automa
    git push -u origin main
    ```
 2. **If `app/google-services.json` is not committed to Git** (for example when pushing from AI Studio, or whenever you re-download it after adding an Android app/SHA-1), add or update the GitHub Repository Secret named `GOOGLE_SERVICES_JSON_BASE64` in **GitHub Repo → Settings → Secrets and variables → Actions → New repository secret**. You can paste either the **raw `google-services.json` text** directly or its **base64** output (`base64 -w 0 app/google-services.json`).
-3. Open the **Actions** tab in GitHub, select the latest **Build Android Debug APK** run, and download **`story-weaver-debug-apk`** from **Artifacts**.
+3. **If `debug.keystore.base64` is not committed to Git** (also skipped on some AI Studio GitHub pushes), copy the text of `debug.keystore.base64` and add it as a GitHub Repository Secret named `DEBUG_KEYSTORE_BASE64` so every CI APK uses the same `95:9A:7D:...` SHA-1 registered in Firebase.
+4. Open the **Actions** tab in GitHub, select the latest **Build Android Debug APK** run, and download **`story-weaver-debug-apk`** from **Artifacts**.
 
 ---
 
