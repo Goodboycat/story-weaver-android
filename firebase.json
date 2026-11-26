@@ -1,7 +1,7 @@
 {
   "firestore": [
     {
-      "database": "ai-studio-android-questcra-021fda2f-f87c-443b-b200-4ec33aa6ff8c",
+      "database": "(default)",
       "rules": "firestore.rules"
     }
   ],

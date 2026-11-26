@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "811536113968",
+    "project_id": "story-weaver-d66ef",
+    "storage_bucket": "story-weaver-d66ef.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:811536113968:android:6349b81877b19324f9e8f5",
+        "android_client_info": {
+          "package_name": "com.aistudio.storyweaver.kmrxpz"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "811536113968-q3stke2j7vfmoa71ggmr120b2ih0ch4k.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDlmEiQ0rn2RvMWAwTLS3v_h_XhKRZob1o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "811536113968-q3stke2j7vfmoa71ggmr120b2ih0ch4k.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
