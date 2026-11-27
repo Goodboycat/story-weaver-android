@@ -72,6 +72,7 @@ fun SettingsSheet(
     onSelectAiImageApiKey: (String) -> Unit,
     onSignOut: () -> Unit,
     onDismiss: () -> Unit,
+    aiConfigActions: com.example.ui.components.AiProviderConfigActions? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -222,6 +223,9 @@ fun SettingsSheet(
                 onSelectImageModel = onSelectAiImageModel,
                 onSelectImageApiKey = onSelectAiImageApiKey,
                 showAdvancedApiConfig = true,
+                customProviders = settings.customAiProviders,
+                activeCustomProviderId = settings.activeCustomProviderId,
+                configActions = aiConfigActions,
             )
 
             Surface(

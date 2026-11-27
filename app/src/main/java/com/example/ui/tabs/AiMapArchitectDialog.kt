@@ -100,6 +100,7 @@ fun AiMapArchitectDialog(
     ) -> Unit,
     onClearError: () -> Unit,
     onDismiss: () -> Unit,
+    aiConfigActions: com.example.ui.components.AiProviderConfigActions? = null,
 ) {
     var prompt by remember { mutableStateOf("") }
     var replaceEntireMap by remember { mutableStateOf(!hasExistingTiles) }
@@ -135,7 +136,7 @@ fun AiMapArchitectDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "${userSettings.aiProvider.label} • ${userSettings.aiModel}",
+                        text = "${userSettings.activeProviderLabel} • ${userSettings.aiModel}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
@@ -163,6 +164,9 @@ fun AiMapArchitectDialog(
                         onSelectApiKey = onSelectApiKey,
                         compact = false,
                         showAdvancedApiConfig = true,
+                        customProviders = userSettings.customAiProviders,
+                        activeCustomProviderId = userSettings.activeCustomProviderId,
+                        configActions = aiConfigActions,
                     )
                 }
 

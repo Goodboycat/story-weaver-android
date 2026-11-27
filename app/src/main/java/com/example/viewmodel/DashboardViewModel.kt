@@ -56,6 +56,7 @@ class DashboardViewModel(
 
     init {
         viewModelScope.launch {
+            preferencesRepository.setActiveUserId(currentUserId)
             repository.upsertCurrentUserProfile()
         }
     }
@@ -148,6 +149,18 @@ class DashboardViewModel(
 
     fun setAiImageApiKey(apiKey: String) {
         viewModelScope.launch { preferencesRepository.setAiImageApiKey(apiKey) }
+    }
+
+    fun saveCustomAiProvider(profile: com.example.ai.CustomAiProviderProfile, selectImmediately: Boolean = true) {
+        viewModelScope.launch { preferencesRepository.saveCustomAiProvider(profile, selectImmediately) }
+    }
+
+    fun selectCustomAiProvider(profileId: String) {
+        viewModelScope.launch { preferencesRepository.selectCustomAiProvider(profileId) }
+    }
+
+    fun deleteCustomAiProvider(profileId: String) {
+        viewModelScope.launch { preferencesRepository.deleteCustomAiProvider(profileId) }
     }
 
     private companion object {

@@ -100,6 +100,7 @@ fun EntitiesTab(
     onShareCharacterToChat: ((Character) -> Unit)? = null,
     onPinCharacter: ((Character, targetUserId: String, note: String) -> Unit)? = null,
     onUnpinCharacter: ((String) -> Unit)? = null,
+    aiConfigActions: com.example.ui.components.AiProviderConfigActions? = null,
 ) {
     val filtered = remember(characters, kind) { characters.filter { it.kind == kind } }
     var searchQuery by remember { mutableStateOf("") }
@@ -479,7 +480,8 @@ fun EntitiesTab(
                 onSaveCharacter(updated)
                 editingCharacter = null
             },
-            onDismiss = { editingCharacter = null }
+            onDismiss = { editingCharacter = null },
+            aiConfigActions = aiConfigActions,
         )
     }
 
@@ -541,6 +543,7 @@ fun EntitiesTab(
                     }
                 }
             } else null,
+            aiConfigActions = aiConfigActions,
         )
     }
 

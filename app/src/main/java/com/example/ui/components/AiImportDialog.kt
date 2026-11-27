@@ -82,6 +82,7 @@ fun AiImportDialog(
     showTargetPickerInEditMode: Boolean = true,
     editPromptPlaceholder: String = "Describe how to edit, extend, or update the existing info...",
     onEditExisting: ((selectedIds: List<String>, instruction: String) -> Unit)? = null,
+    aiConfigActions: AiProviderConfigActions? = null,
 ) {
     // 0 = AI Parse/Edit, 1 = AI Chat, 2 = Fast Regex
     var mode by remember { mutableIntStateOf(0) }
@@ -125,7 +126,7 @@ fun AiImportDialog(
             Column {
                 Text(title, style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    text = "${userSettings.aiProvider.label} • ${userSettings.aiModel}",
+                    text = "${userSettings.activeProviderLabel} • ${userSettings.aiModel}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -211,7 +212,11 @@ fun AiImportDialog(
                         selectedModel = userSettings.aiModel,
                         onSelectProvider = onSelectProvider,
                         onSelectModel = onSelectModel,
+                        endpointUrl = userSettings.aiEndpointUrl,
                         apiKey = userSettings.aiApiKey,
+                        customProviders = userSettings.customAiProviders,
+                        activeCustomProviderId = userSettings.activeCustomProviderId,
+                        configActions = aiConfigActions,
                     )
                 }
 

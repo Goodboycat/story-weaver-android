@@ -575,7 +575,19 @@ fun StoryViewScreen(
                 viewModel.sendChatMessage(story, "🤖 AI (${userSettings.aiModel}):\n$reply")
             },
             onNotify = { msg -> viewModel.showToast(msg) },
-            onDismiss = { showAiChat = false }
+            onDismiss = { showAiChat = false },
+            aiConfigActions = com.example.ui.components.AiProviderConfigActions(
+                onSelectProvider = { viewModel.setAiProvider(it) },
+                onSelectModel = { viewModel.setAiModel(it) },
+                onSelectEndpointUrl = { viewModel.setAiEndpointUrl(it) },
+                onSelectApiKey = { viewModel.setAiApiKey(it) },
+                onSelectCustomProvider = { viewModel.selectCustomAiProvider(it) },
+                onSaveCustomProvider = { viewModel.saveCustomAiProvider(it) },
+                onDeleteCustomProvider = { viewModel.deleteCustomAiProvider(it) },
+                onSelectImageEndpointUrl = { viewModel.setAiImageEndpointUrl(it) },
+                onSelectImageModel = { viewModel.setAiImageModel(it) },
+                onSelectImageApiKey = { viewModel.setAiImageApiKey(it) },
+            ),
         )
     }
 
@@ -669,6 +681,20 @@ private fun StoryTabContent(
     onJumpToEntityTab: (String, String) -> Unit,
     onOpenAiChat: () -> Unit,
 ) {
+    val aiConfigActions = androidx.compose.runtime.remember(viewModel) {
+        com.example.ui.components.AiProviderConfigActions(
+            onSelectProvider = { viewModel.setAiProvider(it) },
+            onSelectModel = { viewModel.setAiModel(it) },
+            onSelectEndpointUrl = { viewModel.setAiEndpointUrl(it) },
+            onSelectApiKey = { viewModel.setAiApiKey(it) },
+            onSelectCustomProvider = { viewModel.selectCustomAiProvider(it) },
+            onSaveCustomProvider = { viewModel.saveCustomAiProvider(it) },
+            onDeleteCustomProvider = { viewModel.deleteCustomAiProvider(it) },
+            onSelectImageEndpointUrl = { viewModel.setAiImageEndpointUrl(it) },
+            onSelectImageModel = { viewModel.setAiImageModel(it) },
+            onSelectImageApiKey = { viewModel.setAiImageApiKey(it) },
+        )
+    }
     when (tabId) {
         StoryTabId.GUIDE -> GuideTab(
             story = story,
@@ -711,6 +737,7 @@ private fun StoryTabContent(
             onShareCharacterToChat = { ch -> viewModel.shareEntityToChat(story, characterToEntityRef(ch)) },
             onPinCharacter = { ch, uid, note -> viewModel.pinCharacterToChat(story, ch, uid, note) },
             onUnpinCharacter = { chId -> viewModel.unpinCharacterFromChat(story, chId) },
+            aiConfigActions = aiConfigActions,
         )
         StoryTabId.NPCS -> EntitiesTab(
             story = story,
@@ -748,6 +775,7 @@ private fun StoryTabContent(
             onShareCharacterToChat = { ch -> viewModel.shareEntityToChat(story, characterToEntityRef(ch)) },
             onPinCharacter = { ch, uid, note -> viewModel.pinCharacterToChat(story, ch, uid, note) },
             onUnpinCharacter = { chId -> viewModel.unpinCharacterFromChat(story, chId) },
+            aiConfigActions = aiConfigActions,
         )
         StoryTabId.MONSTERS -> EntitiesTab(
             story = story,
@@ -785,6 +813,7 @@ private fun StoryTabContent(
             onShareCharacterToChat = { ch -> viewModel.shareEntityToChat(story, characterToEntityRef(ch)) },
             onPinCharacter = { ch, uid, note -> viewModel.pinCharacterToChat(story, ch, uid, note) },
             onUnpinCharacter = { chId -> viewModel.unpinCharacterFromChat(story, chId) },
+            aiConfigActions = aiConfigActions,
         )
         StoryTabId.LOCATIONS -> WorldListTab(
             story = story,
@@ -818,6 +847,7 @@ private fun StoryTabContent(
             },
             onResetAiState = { viewModel.resetAiState() },
             onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
+            aiConfigActions = aiConfigActions,
         )
         StoryTabId.POWERS -> WorldListTab(
             story = story,
@@ -849,6 +879,7 @@ private fun StoryTabContent(
             },
             onResetAiState = { viewModel.resetAiState() },
             onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
+            aiConfigActions = aiConfigActions,
         )
         StoryTabId.MAP -> GridMapTab(
             story = story,
@@ -872,6 +903,7 @@ private fun StoryTabContent(
             },
             onAddQuickAsset = { viewModel.addQuickMapAsset(it) },
             onAddQuickBlock = { viewModel.addQuickMapBlock(it) },
+            aiConfigActions = aiConfigActions,
         )
         StoryTabId.ITEMS -> WorldListTab(
             story = story,
@@ -903,6 +935,7 @@ private fun StoryTabContent(
             },
             onResetAiState = { viewModel.resetAiState() },
             onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
+            aiConfigActions = aiConfigActions,
         )
         StoryTabId.NOTES -> WorldListTab(
             story = story,
@@ -934,6 +967,7 @@ private fun StoryTabContent(
             },
             onResetAiState = { viewModel.resetAiState() },
             onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
+            aiConfigActions = aiConfigActions,
         )
         StoryTabId.CHAT -> ChatTab(
             story = story,

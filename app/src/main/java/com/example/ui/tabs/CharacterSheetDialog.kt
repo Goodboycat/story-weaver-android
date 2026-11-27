@@ -128,6 +128,7 @@ fun CharacterSheetDialog(
     onAutoSave: ((Character) -> Unit)? = null,
     onSave: (Character) -> Unit,
     onDismiss: () -> Unit,
+    aiConfigActions: com.example.ui.components.AiProviderConfigActions? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1184,6 +1185,7 @@ fun CharacterSheetDialog(
                     }
                 }
             } else null,
+            aiConfigActions = aiConfigActions,
         )
     }
 

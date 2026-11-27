@@ -88,6 +88,7 @@ fun StoryWeaverApp() {
             Firebase.auth.currentUser
         }
         currentUser = initialUser
+        prefsRepo.setActiveUserId(initialUser?.uid)
         if (initialUser != null) {
             val dbId = context.applicationContext.getString(R.string.firestore_database_id)
             firestoreDb = withContext(Dispatchers.IO) {
@@ -98,6 +99,7 @@ fun StoryWeaverApp() {
     }
 
     LaunchedEffect(currentUser?.uid) {
+        prefsRepo.setActiveUserId(currentUser?.uid)
         if (currentUser != null && firestoreDb == null) {
             val dbId = context.applicationContext.getString(R.string.firestore_database_id)
             firestoreDb = withContext(Dispatchers.IO) {

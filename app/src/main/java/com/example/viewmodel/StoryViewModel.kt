@@ -164,6 +164,12 @@ class StoryViewModel(
     private var mapSyncJob: Job? = null
     private var lastSyncedMemberSignature: String = ""
 
+    init {
+        viewModelScope.launch {
+            preferencesRepository.setActiveUserId(currentUserId)
+        }
+    }
+
     fun toggleViewAsPlayer() {
         _viewAsPlayer.value = !_viewAsPlayer.value
     }
@@ -202,6 +208,21 @@ class StoryViewModel(
 
     fun setAiImageApiKey(apiKey: String) {
         viewModelScope.launch { preferencesRepository.setAiImageApiKey(apiKey) }
+    }
+
+    fun saveCustomAiProvider(
+        profile: com.example.ai.CustomAiProviderProfile,
+        selectImmediately: Boolean = true,
+    ) {
+        viewModelScope.launch { preferencesRepository.saveCustomAiProvider(profile, selectImmediately) }
+    }
+
+    fun selectCustomAiProvider(profileId: String) {
+        viewModelScope.launch { preferencesRepository.selectCustomAiProvider(profileId) }
+    }
+
+    fun deleteCustomAiProvider(profileId: String) {
+        viewModelScope.launch { preferencesRepository.deleteCustomAiProvider(profileId) }
     }
 
     fun generateEntityImage(

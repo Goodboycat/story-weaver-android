@@ -98,16 +98,28 @@ object UnorouterClient {
     }
 
     fun parseCurlCommand(curlText: String): ParsedCurlConfig? {
-        val normalized = curlText.replace("\\\r\n", " ").replace("\\\n", " ").trim()
+        val normalized = curlText
+            .replace("\\\r\n", " ")
+            .replace("\\\n", " ")
+            .replace("^\r\n", " ")
+            .replace("^\n", " ")
+            .replace("`\r\n", " ")
+            .replace("`\n", " ")
+            .replace("\\\"", "\"")
+            .trim()
         if (normalized.isEmpty()) return null
 
-        val urlMatch = Regex("""https://[^\s'"\\]+""").find(normalized)?.value
+        val urlMatch = Regex("""https://[^\s'"\\`]+""").find(normalized)?.value
         val bearerMatch = Regex(
             """Authorization\s*:\s*Bearer\s+([^\s'"\\]+)""",
             RegexOption.IGNORE_CASE
         ).find(normalized)?.groupValues?.getOrNull(1)
+            ?: Regex(
+                """(?:x-api-key|api-key)\s*:\s*([^\s'"\\]+)""",
+                RegexOption.IGNORE_CASE
+            ).find(normalized)?.groupValues?.getOrNull(1)
         val modelMatch = Regex(
-            """"model"\s*:\s*"([^"]+)"""",
+            """["']model["']\s*:\s*["']([^"']+)["']""",
             RegexOption.IGNORE_CASE
         ).find(normalized)?.groupValues?.getOrNull(1)
 

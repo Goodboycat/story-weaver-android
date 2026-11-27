@@ -348,6 +348,18 @@ fun DashboardScreen(
             onSelectAiImageEndpointUrl = { viewModel.setAiImageEndpointUrl(it) },
             onSelectAiImageModel = { viewModel.setAiImageModel(it) },
             onSelectAiImageApiKey = { viewModel.setAiImageApiKey(it) },
+            aiConfigActions = com.example.ui.components.AiProviderConfigActions(
+                onSelectProvider = { viewModel.setAiProvider(it) },
+                onSelectModel = { viewModel.setAiModel(it) },
+                onSelectEndpointUrl = { viewModel.setAiEndpointUrl(it) },
+                onSelectApiKey = { viewModel.setAiApiKey(it) },
+                onSelectCustomProvider = { viewModel.selectCustomAiProvider(it) },
+                onSaveCustomProvider = { viewModel.saveCustomAiProvider(it) },
+                onDeleteCustomProvider = { viewModel.deleteCustomAiProvider(it) },
+                onSelectImageEndpointUrl = { viewModel.setAiImageEndpointUrl(it) },
+                onSelectImageModel = { viewModel.setAiImageModel(it) },
+                onSelectImageApiKey = { viewModel.setAiImageApiKey(it) },
+            ),
             onSignOut = {
                 showSettings = false
                 onSignOut()

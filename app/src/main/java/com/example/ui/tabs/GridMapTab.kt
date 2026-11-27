@@ -159,6 +159,7 @@ fun GridMapTab(
     onSyncMap: (width: Int, height: Int, grid: Map<String, GridCell>, tokens: List<MapToken>, backgroundUrl: String?, immediate: Boolean) -> Unit,
     onAddQuickAsset: (QuickMapAsset) -> Unit,
     onAddQuickBlock: (QuickMapBlock) -> Unit,
+    aiConfigActions: com.example.ui.components.AiProviderConfigActions? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1274,6 +1275,7 @@ fun GridMapTab(
                 onClearAiMapError()
                 showAiMapDialog = false
             },
+            aiConfigActions = aiConfigActions,
         )
     }
 

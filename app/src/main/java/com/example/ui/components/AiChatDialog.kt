@@ -105,6 +105,7 @@ fun AiChatDialog(
     onPostToPartyChat: ((String) -> Unit)? = null,
     onNotify: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
+    aiConfigActions: AiProviderConfigActions? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -183,7 +184,7 @@ fun AiChatDialog(
                             val activeSub = if (chatMode == AiChatMode.IMAGE && onSendImagePrompt != null) {
                                 "Image • ${userSettings.aiImageModel}"
                             } else {
-                                "${userSettings.aiProvider.label} • ${userSettings.aiModel}"
+                                "${userSettings.activeProviderLabel} • ${userSettings.aiModel}"
                             }
                             Text(
                                 text = activeSub,
@@ -256,7 +257,7 @@ fun AiChatDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 320.dp)
+                            .heightIn(max = 380.dp)
                             .verticalScroll(rememberScrollState())
                     ) {
                         AiModelSelectorBar(
@@ -275,6 +276,9 @@ fun AiChatDialog(
                             onSelectImageModel = onSelectImageModel,
                             onSelectImageApiKey = onSelectImageApiKey,
                             showAdvancedApiConfig = onSelectEndpointUrl != null || onSelectApiKey != null,
+                            customProviders = userSettings.customAiProviders,
+                            activeCustomProviderId = userSettings.activeCustomProviderId,
+                            configActions = aiConfigActions,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }

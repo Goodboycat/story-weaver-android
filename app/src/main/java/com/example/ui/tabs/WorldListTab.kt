@@ -112,6 +112,7 @@ fun WorldListTab(
     onAssistSingleWorldItemAi: ((current: WorldItem, prompt: String, isEditExisting: Boolean, useRegex: Boolean, onApplied: (WorldItem) -> Unit) -> Unit)? = null,
     onResetAiState: () -> Unit,
     onShareToChat: ((WorldItem) -> Unit)? = null,
+    aiConfigActions: com.example.ui.components.AiProviderConfigActions? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -701,7 +702,8 @@ fun WorldListTab(
                         tagsText = JsonCodecs.decodeStringList(updated.tagsJson).joinToString(", ")
                         showSingleAiEdit = false
                     }
-                }
+                },
+                aiConfigActions = aiConfigActions,
             )
         }
     }
@@ -751,6 +753,7 @@ fun WorldListTab(
                     }
                 }
             } else null,
+            aiConfigActions = aiConfigActions,
         )
     }
 
