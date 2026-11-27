@@ -552,20 +552,24 @@ class StoryRepository(
         val path = "stories/${story.id}/characters"
         return try {
             requireUserId()
-            val batch = db.batch()
-            ids.filter { it.isNotBlank() }.forEach { id ->
-                batch.delete(
-                    db.collection("stories").document(story.id)
-                        .collection("characters").document(id)
-                )
+            val cleanIds = ids.filter { it.isNotBlank() }.distinct()
+            if (cleanIds.isEmpty()) return Result.success(Unit)
+            cleanIds.chunked(450).forEach { chunk ->
+                val batch = db.batch()
+                chunk.forEach { id ->
+                    batch.delete(
+                        db.collection("stories").document(story.id)
+                            .collection("characters").document(id)
+                    )
+                }
+                batch.commit().await()
             }
-            batch.commit().await()
             appendLogInternal(
                 storyId = story.id,
                 gmUserId = story.gmUserId,
                 memberUids = story.memberUids,
                 actionType = "character",
-                summary = "Removed ${ids.size} character sheet(s)",
+                summary = "Removed ${cleanIds.size} character sheet(s)",
             )
             Result.success(Unit)
         } catch (e: CancellationException) {
@@ -701,14 +705,18 @@ class StoryRepository(
         val path = "stories/${story.id}/world_items"
         return try {
             requireUserId()
-            val batch = db.batch()
-            ids.filter { it.isNotBlank() }.forEach { id ->
-                batch.delete(
-                    db.collection("stories").document(story.id)
-                        .collection("world_items").document(id)
-                )
+            val cleanIds = ids.filter { it.isNotBlank() }.distinct()
+            if (cleanIds.isEmpty()) return Result.success(Unit)
+            cleanIds.chunked(450).forEach { chunk ->
+                val batch = db.batch()
+                chunk.forEach { id ->
+                    batch.delete(
+                        db.collection("stories").document(story.id)
+                            .collection("world_items").document(id)
+                    )
+                }
+                batch.commit().await()
             }
-            batch.commit().await()
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -980,6 +988,31 @@ class StoryRepository(
             db.collection("stories").document(story.id)
                 .collection("messages").document(messageId)
                 .delete().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteMessages(story: Story, messageIds: List<String>): Result<Unit> {
+        val path = "stories/${story.id}/messages"
+        return try {
+            requireUserId()
+            val cleanIds = messageIds.filter { it.isNotBlank() }.distinct()
+            if (cleanIds.isEmpty()) return Result.success(Unit)
+            cleanIds.chunked(450).forEach { chunk ->
+                val batch = db.batch()
+                chunk.forEach { id ->
+                    batch.delete(
+                        db.collection("stories").document(story.id)
+                            .collection("messages").document(id)
+                    )
+                }
+                batch.commit().await()
+            }
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e

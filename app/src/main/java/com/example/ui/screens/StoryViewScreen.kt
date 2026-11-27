@@ -563,6 +563,7 @@ fun StoryViewScreen(
             onSendImagePrompt = { prompt -> viewModel.sendAiChatMessage(story, prompt, mode = AiChatMode.IMAGE) },
             onClearError = { viewModel.clearAiChatError() },
             onClearChat = { viewModel.clearAiChat() },
+            onDeleteMessages = { ids -> viewModel.deleteAiChatMessages(ids) },
             onSelectProvider = { viewModel.setAiProvider(it) },
             onSelectModel = { viewModel.setAiModel(it) },
             onSelectEndpointUrl = { viewModel.setAiEndpointUrl(it) },
@@ -699,6 +700,12 @@ private fun StoryTabContent(
                 viewModel.importCharactersWithAi(story, raw, "player", regex, done)
             },
             onParseEquipmentAi = { raw, onParsed -> viewModel.parseEquipmentWithAi(raw, onParsed) },
+            onEditCharactersAi = { targets, instruction, done ->
+                viewModel.editCharactersWithAi(story, targets, instruction, done)
+            },
+            onAssistTabAi = { current, tab, prompt, isEdit, useRegex, onApplied ->
+                viewModel.assistCharacterTabWithAi(story, current, tab, prompt, isEdit, useRegex, onApplied)
+            },
             onResetAiState = { viewModel.resetAiState() },
             onJumpToLocation = onJumpToLocation,
             onShareCharacterToChat = { ch -> viewModel.shareEntityToChat(story, characterToEntityRef(ch)) },
@@ -730,6 +737,12 @@ private fun StoryTabContent(
                 viewModel.importCharactersWithAi(story, raw, "npc", regex, done)
             },
             onParseEquipmentAi = { raw, onParsed -> viewModel.parseEquipmentWithAi(raw, onParsed) },
+            onEditCharactersAi = { targets, instruction, done ->
+                viewModel.editCharactersWithAi(story, targets, instruction, done)
+            },
+            onAssistTabAi = { current, tab, prompt, isEdit, useRegex, onApplied ->
+                viewModel.assistCharacterTabWithAi(story, current, tab, prompt, isEdit, useRegex, onApplied)
+            },
             onResetAiState = { viewModel.resetAiState() },
             onJumpToLocation = onJumpToLocation,
             onShareCharacterToChat = { ch -> viewModel.shareEntityToChat(story, characterToEntityRef(ch)) },
@@ -761,6 +774,12 @@ private fun StoryTabContent(
                 viewModel.importCharactersWithAi(story, raw, "monster", regex, done)
             },
             onParseEquipmentAi = { raw, onParsed -> viewModel.parseEquipmentWithAi(raw, onParsed) },
+            onEditCharactersAi = { targets, instruction, done ->
+                viewModel.editCharactersWithAi(story, targets, instruction, done)
+            },
+            onAssistTabAi = { current, tab, prompt, isEdit, useRegex, onApplied ->
+                viewModel.assistCharacterTabWithAi(story, current, tab, prompt, isEdit, useRegex, onApplied)
+            },
             onResetAiState = { viewModel.resetAiState() },
             onJumpToLocation = onJumpToLocation,
             onShareCharacterToChat = { ch -> viewModel.shareEntityToChat(story, characterToEntityRef(ch)) },
@@ -791,6 +810,12 @@ private fun StoryTabContent(
             onImportAi = { raw, start, regex, done ->
                 viewModel.importWorldItemsWithAi(story, raw, "location", start, regex, done)
             },
+            onEditWorldItemsAi = { targets, instruction, done ->
+                viewModel.editWorldItemsWithAi(story, targets, "location", instruction, done)
+            },
+            onAssistSingleWorldItemAi = { current, prompt, isEdit, regex, onApplied ->
+                viewModel.assistSingleWorldItemWithAi(story, current, "location", prompt, isEdit, regex, onApplied)
+            },
             onResetAiState = { viewModel.resetAiState() },
             onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
         )
@@ -815,6 +840,12 @@ private fun StoryTabContent(
             onDeleteItems = { viewModel.deleteWorldItems(story, it) },
             onImportAi = { raw, start, regex, done ->
                 viewModel.importWorldItemsWithAi(story, raw, "power", start, regex, done)
+            },
+            onEditWorldItemsAi = { targets, instruction, done ->
+                viewModel.editWorldItemsWithAi(story, targets, "power", instruction, done)
+            },
+            onAssistSingleWorldItemAi = { current, prompt, isEdit, regex, onApplied ->
+                viewModel.assistSingleWorldItemWithAi(story, current, "power", prompt, isEdit, regex, onApplied)
             },
             onResetAiState = { viewModel.resetAiState() },
             onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
@@ -864,6 +895,12 @@ private fun StoryTabContent(
             onImportAi = { raw, start, regex, done ->
                 viewModel.importWorldItemsWithAi(story, raw, "item", start, regex, done)
             },
+            onEditWorldItemsAi = { targets, instruction, done ->
+                viewModel.editWorldItemsWithAi(story, targets, "item", instruction, done)
+            },
+            onAssistSingleWorldItemAi = { current, prompt, isEdit, regex, onApplied ->
+                viewModel.assistSingleWorldItemWithAi(story, current, "item", prompt, isEdit, regex, onApplied)
+            },
             onResetAiState = { viewModel.resetAiState() },
             onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
         )
@@ -888,6 +925,12 @@ private fun StoryTabContent(
             onDeleteItems = { viewModel.deleteWorldItems(story, it) },
             onImportAi = { raw, start, regex, done ->
                 viewModel.importWorldItemsWithAi(story, raw, "note", start, regex, done)
+            },
+            onEditWorldItemsAi = { targets, instruction, done ->
+                viewModel.editWorldItemsWithAi(story, targets, "note", instruction, done)
+            },
+            onAssistSingleWorldItemAi = { current, prompt, isEdit, regex, onApplied ->
+                viewModel.assistSingleWorldItemWithAi(story, current, "note", prompt, isEdit, regex, onApplied)
             },
             onResetAiState = { viewModel.resetAiState() },
             onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
@@ -918,6 +961,7 @@ private fun StoryTabContent(
             onTogglePinMessage = { msg -> viewModel.togglePinMessage(story, msg) },
             onToggleReaction = { msg, emoji -> viewModel.toggleMessageReaction(story, msg, emoji) },
             onDeleteMessage = { msgId -> viewModel.deleteChatMessage(story, msgId) },
+            onDeleteMessages = { msgIds -> viewModel.deleteChatMessages(story, msgIds) },
             onPinCharacter = { ch, uid, note -> viewModel.pinCharacterToChat(story, ch, uid, note) },
             onSlashRoll = { cmd, roller -> viewModel.trySendSlashRoll(story, cmd, roller) },
             onJumpToEntityTab = onJumpToEntityTab,

@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.example.ai.AiChatMessage
 import com.example.ai.AiChatMode
 import com.example.ai.AiChatUiState
+import com.example.ai.AiEditAssistService
 import com.example.ai.AiImageGeneratorService
 import com.example.ai.AiParserService
 import com.example.ai.AiProvider
+import com.example.ai.CharacterSheetAiTab
 import com.example.ai.SvgCodeToImageUtil
 import com.example.data.ActivityLog
 import com.example.data.Character
@@ -228,6 +230,13 @@ class StoryViewModel(
 
     fun clearAiChat() {
         _aiChatState.value = AiChatUiState()
+    }
+
+    fun deleteAiChatMessages(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        val remaining = _aiChatState.value.messages.filterNot { it.id in ids }
+        _aiChatState.value = _aiChatState.value.copy(messages = remaining)
+        _toastMessage.value = "Removed ${ids.size} AI chat message(s)"
     }
 
     fun clearAiChatError() {
@@ -672,6 +681,17 @@ class StoryViewModel(
         }
     }
 
+    fun deleteChatMessages(story: Story, messageIds: List<String>) {
+        if (messageIds.isEmpty()) return
+        viewModelScope.launch {
+            repository.deleteMessages(story, messageIds).onSuccess {
+                _toastMessage.value = "Deleted ${messageIds.size} message(s)"
+            }.onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to delete messages.")
+            }
+        }
+    }
+
     fun trySendSlashRoll(story: Story, rawText: String, rollerName: String): Boolean {
         val trimmed = rawText.trim()
         val expr = when {
@@ -888,6 +908,208 @@ class StoryViewModel(
                 .onFailure { err ->
                     _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI equipment parse failed.")
                 }
+        }
+    }
+
+    fun editCharactersWithAi(
+        story: Story,
+        targets: List<Character>,
+        instruction: String,
+        onComplete: () -> Unit,
+    ) {
+        if (instruction.isBlank() || targets.isEmpty()) return
+        val settings = userSettings.value
+        viewModelScope.launch {
+            _aiState.value = AiUiState.Loading
+            AiEditAssistService.editCharactersWithAi(
+                targets = targets,
+                instruction = instruction,
+                story = story,
+                provider = settings.aiProvider,
+                modelName = settings.aiModel,
+                endpointUrl = settings.aiEndpointUrl,
+                apiKeyOverride = settings.aiApiKey,
+            ).onSuccess { updatedList ->
+                updatedList.forEach { ch ->
+                    repository.saveCharacter(story, ch)
+                }
+                if (story.gmUserId == currentUserId) {
+                    val existingItems = (worldItemsState.value as? UiState.Success)?.data.orEmpty()
+                    val seenKeys = existingItems.map { it.category to it.title.trim().lowercase() }.toMutableSet()
+                    val bundle = com.example.ai.CharacterParserHelpers.buildWorldBundleFromCharacters(
+                        characters = updatedList,
+                        story = story,
+                        ownerId = currentUserId,
+                    )
+                    val baseOrder = existingItems.size
+                    (bundle.locations + bundle.powers + bundle.items).forEachIndexed { idx, candidate ->
+                        val key = candidate.category to candidate.title.trim().lowercase()
+                        if (seenKeys.add(key)) {
+                            repository.saveWorldItem(story, candidate.copy(sortOrder = (baseOrder + idx).toLong()))
+                        }
+                    }
+                }
+                _aiState.value = AiUiState.Success("AI updated ${updatedList.size} unit(s).")
+                _toastMessage.value = "Updated ${updatedList.size} unit(s) with AI"
+                onComplete()
+            }.onFailure { err ->
+                _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI edit failed.")
+            }
+        }
+    }
+
+    fun editWorldItemsWithAi(
+        story: Story,
+        targets: List<WorldItem>,
+        category: String,
+        instruction: String,
+        onComplete: () -> Unit,
+    ) {
+        if (instruction.isBlank() || targets.isEmpty()) return
+        val settings = userSettings.value
+        viewModelScope.launch {
+            _aiState.value = AiUiState.Loading
+            AiEditAssistService.editWorldItemsWithAi(
+                targets = targets,
+                category = category,
+                instruction = instruction,
+                story = story,
+                provider = settings.aiProvider,
+                modelName = settings.aiModel,
+                endpointUrl = settings.aiEndpointUrl,
+                apiKeyOverride = settings.aiApiKey,
+            ).onSuccess { updatedList ->
+                updatedList.forEach { repository.saveWorldItem(story, it) }
+                _aiState.value = AiUiState.Success("AI updated ${updatedList.size} $category card(s).")
+                _toastMessage.value = "Updated ${updatedList.size} $category card(s) with AI"
+                onComplete()
+            }.onFailure { err ->
+                _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI edit failed.")
+            }
+        }
+    }
+
+    fun assistSingleWorldItemWithAi(
+        story: Story,
+        current: WorldItem,
+        category: String,
+        prompt: String,
+        isEditExisting: Boolean,
+        useRegexFallback: Boolean,
+        onApplied: (WorldItem) -> Unit,
+    ) {
+        if (prompt.isBlank()) return
+        val settings = userSettings.value
+        viewModelScope.launch {
+            _aiState.value = AiUiState.Loading
+            if (isEditExisting) {
+                AiEditAssistService.editWorldItemsWithAi(
+                    targets = listOf(current),
+                    category = category,
+                    instruction = prompt,
+                    story = story,
+                    provider = settings.aiProvider,
+                    modelName = settings.aiModel,
+                    endpointUrl = settings.aiEndpointUrl,
+                    apiKeyOverride = settings.aiApiKey,
+                ).onSuccess { updatedList ->
+                    val edited = updatedList.first()
+                    _aiState.value = AiUiState.Success("AI edited $category fields.")
+                    onApplied(edited)
+                }.onFailure { err ->
+                    _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI edit failed.")
+                }
+            } else if (useRegexFallback) {
+                val parsed = aiParser.parseWorldItemsRegex(prompt, category, story, currentUserId, current.sortOrder.toInt())
+                val first = parsed.firstOrNull()
+                if (first == null) {
+                    _aiState.value = AiUiState.Error("Could not parse a $category entry from text.")
+                } else {
+                    val merged = current.copy(
+                        title = first.title,
+                        subtitle = first.subtitle,
+                        description = first.description,
+                        iconEmoji = first.iconEmoji,
+                        tagsJson = first.tagsJson,
+                    )
+                    _aiState.value = AiUiState.Success("Populated $category fields via quick parser.")
+                    onApplied(merged)
+                }
+            } else {
+                aiParser.parseWorldItemsWithAi(
+                    rawText = prompt,
+                    category = category,
+                    story = story,
+                    ownerId = currentUserId,
+                    startOrder = current.sortOrder.toInt(),
+                    provider = settings.aiProvider,
+                    modelName = settings.aiModel,
+                    endpointUrl = settings.aiEndpointUrl,
+                    apiKeyOverride = settings.aiApiKey,
+                ).onSuccess { parsed ->
+                    val first = parsed.firstOrNull()
+                    if (first == null) {
+                        _aiState.value = AiUiState.Error("AI did not return a $category card.")
+                    } else {
+                        val merged = current.copy(
+                            title = first.title,
+                            subtitle = first.subtitle,
+                            description = first.description,
+                            iconEmoji = first.iconEmoji,
+                            tagsJson = first.tagsJson,
+                        )
+                        _aiState.value = AiUiState.Success("AI populated $category fields.")
+                        onApplied(merged)
+                    }
+                }.onFailure { err ->
+                    _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI parsing failed.")
+                }
+            }
+        }
+    }
+
+    fun assistCharacterTabWithAi(
+        story: Story?,
+        current: Character,
+        tab: CharacterSheetAiTab,
+        prompt: String,
+        isEditExisting: Boolean,
+        useRegexFallback: Boolean,
+        onApplied: (Character) -> Unit,
+    ) {
+        if (prompt.isBlank()) return
+        val settings = userSettings.value
+        viewModelScope.launch {
+            _aiState.value = AiUiState.Loading
+            if (useRegexFallback && !isEditExisting) {
+                val updated = AiEditAssistService.assistCharacterTabRegex(
+                    current = current,
+                    tab = tab,
+                    rawText = prompt,
+                    story = story,
+                )
+                _aiState.value = AiUiState.Success("Updated ${tab.label} via quick parser.")
+                onApplied(updated)
+            } else {
+                AiEditAssistService.assistCharacterTabWithAi(
+                    current = current,
+                    tab = tab,
+                    prompt = prompt,
+                    isEditExisting = isEditExisting,
+                    story = story,
+                    provider = settings.aiProvider,
+                    modelName = settings.aiModel,
+                    endpointUrl = settings.aiEndpointUrl,
+                    apiKeyOverride = settings.aiApiKey,
+                ).onSuccess { updated ->
+                    _aiState.value = AiUiState.Success(
+                        "AI ${if (isEditExisting) "edited" else "populated"} ${tab.label}."
+                    )
+                    onApplied(updated)
+                }.onFailure { err ->
+                    _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI ${tab.label} assist failed.")
+                }
+            }
         }
     }
 

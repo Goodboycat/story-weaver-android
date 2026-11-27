@@ -70,9 +70,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.ai.AiChatUiState
-import com.example.ai.AiPromptTemplates
 import com.example.ai.AiProvider
 import com.example.ai.CharacterParserHelpers
+import com.example.ai.CharacterSheetAiTab
 import com.example.data.Character
 import com.example.data.EquipmentSlot
 import com.example.data.EquipmentSlotItem
@@ -116,6 +116,7 @@ fun CharacterSheetDialog(
     onGenerateAiImage: (prompt: String, maxDimension: Int, onSuccess: (String) -> Unit, onError: (String) -> Unit) -> Unit,
     onSendAiChat: (String) -> Unit,
     onParseEquipmentAi: (rawText: String, onParsed: (Map<String, EquipmentSlotItem>) -> Unit) -> Unit,
+    onAssistTabAi: ((current: Character, tab: CharacterSheetAiTab, prompt: String, isEditExisting: Boolean, useRegex: Boolean, onDone: (Character) -> Unit) -> Unit)? = null,
     onResetAiState: () -> Unit,
     story: Story? = null,
     allCharacters: List<Character> = emptyList(),
@@ -152,7 +153,7 @@ fun CharacterSheetDialog(
     val subTabs = listOf("Info", "Notes", "Inventory", "Missions", "Powers", "Gear & Stats")
 
     var selectedSlot by remember { mutableStateOf<EquipmentSlot?>(null) }
-    var showEquipmentAi by remember { mutableStateOf(false) }
+    var activeAiTab by remember { mutableStateOf<CharacterSheetAiTab?>(null) }
     var showEquipmentGuide by remember { mutableStateOf(false) }
     var emojiTarget by remember { mutableStateOf<EmojiTarget?>(null) }
     var showCharImageGen by remember { mutableStateOf(false) }
@@ -206,6 +207,24 @@ fun CharacterSheetDialog(
         powers = JsonCodecs.decodePowers(merged.powersJson)
         inventory = JsonCodecs.decodeInventory(merged.inventoryJson)
         parseFeedback = "Parsed stats, gear slots, inventory & powers from Notes."
+    }
+
+    fun applyCharacterState(updated: Character, feedback: String) {
+        name = updated.name
+        roleTitle = updated.roleTitle
+        locationName = updated.locationName
+        avatarEmoji = updated.avatarEmoji
+        levelText = updated.level.toString()
+        hpCurrentText = updated.hpCurrent.toString()
+        hpMaxText = updated.hpMax.toString()
+        acText = updated.ac.toString()
+        notes = updated.notes
+        inventory = JsonCodecs.decodeInventory(updated.inventoryJson)
+        missions = JsonCodecs.decodeMissions(updated.missionsJson)
+        powers = JsonCodecs.decodePowers(updated.powersJson)
+        equipment = JsonCodecs.decodeEquipment(updated.equipmentJson)
+        stats = JsonCodecs.decodeStats(updated.statsJson)
+        parseFeedback = feedback
     }
 
     Dialog(
@@ -395,28 +414,47 @@ fun CharacterSheetDialog(
                                 }
                             }
 
-                            if (canEdit && allCharacters.isNotEmpty()) {
-                                RegisteredUnitDropdownButton(
-                                    allCharacters = allCharacters,
-                                    currentCharacterId = initialCharacter.id,
-                                    onSelectUnit = { unit ->
-                                        name = unit.name
-                                        roleTitle = unit.roleTitle
-                                        locationName = unit.locationName
-                                        avatarEmoji = unit.avatarEmoji
-                                        avatarUrl = unit.avatarUrl
-                                        levelText = unit.level.toString()
-                                        hpCurrentText = unit.hpCurrent.toString()
-                                        hpMaxText = unit.hpMax.toString()
-                                        acText = unit.ac.toString()
-                                        notes = unit.notes
-                                        inventory = JsonCodecs.decodeInventory(unit.inventoryJson)
-                                        missions = JsonCodecs.decodeMissions(unit.missionsJson)
-                                        powers = JsonCodecs.decodePowers(unit.powersJson)
-                                        equipment = JsonCodecs.decodeEquipment(unit.equipmentJson)
-                                        stats = JsonCodecs.decodeStats(unit.statsJson)
+                            if (canEdit) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onResetAiState()
+                                            activeAiTab = CharacterSheetAiTab.INFO
+                                        },
+                                        modifier = Modifier.testTag("char_info_ai_button")
+                                    ) {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("AI Create / Edit")
                                     }
-                                )
+                                    if (allCharacters.isNotEmpty()) {
+                                        RegisteredUnitDropdownButton(
+                                            allCharacters = allCharacters,
+                                            currentCharacterId = initialCharacter.id,
+                                            onSelectUnit = { unit ->
+                                                name = unit.name
+                                                roleTitle = unit.roleTitle
+                                                locationName = unit.locationName
+                                                avatarEmoji = unit.avatarEmoji
+                                                avatarUrl = unit.avatarUrl
+                                                levelText = unit.level.toString()
+                                                hpCurrentText = unit.hpCurrent.toString()
+                                                hpMaxText = unit.hpMax.toString()
+                                                acText = unit.ac.toString()
+                                                notes = unit.notes
+                                                inventory = JsonCodecs.decodeInventory(unit.inventoryJson)
+                                                missions = JsonCodecs.decodeMissions(unit.missionsJson)
+                                                powers = JsonCodecs.decodePowers(unit.powersJson)
+                                                equipment = JsonCodecs.decodeEquipment(unit.equipmentJson)
+                                                stats = JsonCodecs.decodeStats(unit.statsJson)
+                                            }
+                                        )
+                                    }
+                                }
                             }
 
                             OutlinedTextField(
@@ -510,14 +548,33 @@ fun CharacterSheetDialog(
 
                         1 -> {
                             // Notes Sub-Tab
-                            if (canEdit && notes.isNotBlank()) {
-                                OutlinedButton(
-                                    onClick = { reparseNotesIntoFields() },
-                                    modifier = Modifier.fillMaxWidth().testTag("reparse_notes_button")
+                            if (canEdit) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Re-parse Notes -> Stats, Gear & Powers")
+                                    OutlinedButton(
+                                        onClick = {
+                                            onResetAiState()
+                                            activeAiTab = CharacterSheetAiTab.NOTES
+                                        },
+                                        modifier = Modifier.testTag("char_notes_ai_button")
+                                    ) {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("AI Create / Edit")
+                                    }
+                                    if (notes.isNotBlank()) {
+                                        OutlinedButton(
+                                            onClick = { reparseNotesIntoFields() },
+                                            modifier = Modifier.testTag("reparse_notes_button")
+                                        ) {
+                                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Re-parse Notes -> Stats & Gear")
+                                        }
+                                    }
                                 }
                             }
                             if (parseFeedback != null) {
@@ -543,19 +600,36 @@ fun CharacterSheetDialog(
                             var newItemQty by remember { mutableStateOf("1") }
                             var newItemEmoji by remember { mutableStateOf("🎒") }
                             if (canEdit) {
-                                RegisteredItemDropdownButton(
-                                    worldItems = worldItems,
-                                    buttonLabel = "Add from Items Tab",
-                                    onSelectItem = { picked ->
-                                        inventory = inventory + InventoryEntry(
-                                            id = UUID.randomUUID().toString().take(8),
-                                            name = picked.title,
-                                            quantity = 1,
-                                            notes = picked.description.ifBlank { picked.subtitle },
-                                            emoji = picked.iconEmoji.ifBlank { "🎒" },
-                                        )
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onResetAiState()
+                                            activeAiTab = CharacterSheetAiTab.INVENTORY
+                                        },
+                                        modifier = Modifier.testTag("char_inventory_ai_button")
+                                    ) {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("AI Create / Edit")
                                     }
-                                )
+                                    RegisteredItemDropdownButton(
+                                        worldItems = worldItems,
+                                        buttonLabel = "Add from Items Tab",
+                                        onSelectItem = { picked ->
+                                            inventory = inventory + InventoryEntry(
+                                                id = UUID.randomUUID().toString().take(8),
+                                                name = picked.title,
+                                                quantity = 1,
+                                                notes = picked.description.ifBlank { picked.subtitle },
+                                                emoji = picked.iconEmoji.ifBlank { "🎒" },
+                                            )
+                                        }
+                                    )
+                                }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -641,6 +715,17 @@ fun CharacterSheetDialog(
                             // Missions Sub-Tab
                             var newMissionTitle by remember { mutableStateOf("") }
                             if (canEdit) {
+                                OutlinedButton(
+                                    onClick = {
+                                        onResetAiState()
+                                        activeAiTab = CharacterSheetAiTab.MISSIONS
+                                    },
+                                    modifier = Modifier.fillMaxWidth().testTag("char_missions_ai_button")
+                                ) {
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("AI Create / Edit")
+                                }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -718,12 +803,29 @@ fun CharacterSheetDialog(
                             var pTagsText by remember { mutableStateOf("") }
                             var pEmoji by remember { mutableStateOf("✨") }
                             if (canEdit) {
-                                RegisteredPowerDropdownButton(
-                                    worldItems = worldItems,
-                                    onSelectPower = { pickedPower ->
-                                        powers = powers + pickedPower
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onResetAiState()
+                                            activeAiTab = CharacterSheetAiTab.POWERS
+                                        },
+                                        modifier = Modifier.testTag("char_powers_ai_button")
+                                    ) {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("AI Create / Edit")
                                     }
-                                )
+                                    RegisteredPowerDropdownButton(
+                                        worldItems = worldItems,
+                                        onSelectPower = { pickedPower ->
+                                            powers = powers + pickedPower
+                                        }
+                                    )
+                                }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -866,13 +968,13 @@ fun CharacterSheetDialog(
                                         OutlinedButton(
                                             onClick = {
                                                 onResetAiState()
-                                                showEquipmentAi = true
+                                                activeAiTab = CharacterSheetAiTab.GEAR_AND_STATS
                                             },
                                             modifier = Modifier.testTag("equipment_ai_parse_button")
                                         ) {
                                             Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                                             Spacer(Modifier.width(4.dp))
-                                            Text("AI Loadout")
+                                            Text("AI Create / Edit")
                                         }
                                     }
                                 }
@@ -1035,24 +1137,53 @@ fun CharacterSheetDialog(
         )
     }
 
-    if (showEquipmentAi) {
+    if (activeAiTab != null) {
+        val aiTab = activeAiTab!!
+        val hasExisting = when (aiTab) {
+            CharacterSheetAiTab.INFO -> name.isNotBlank() || roleTitle.isNotBlank() || locationName.isNotBlank()
+            CharacterSheetAiTab.NOTES -> notes.isNotBlank()
+            CharacterSheetAiTab.INVENTORY -> inventory.isNotEmpty()
+            CharacterSheetAiTab.MISSIONS -> missions.isNotEmpty()
+            CharacterSheetAiTab.POWERS -> powers.isNotEmpty()
+            CharacterSheetAiTab.GEAR_AND_STATS -> equipment.isNotEmpty() || stats.isNotEmpty()
+        }
         AiImportDialog(
-            title = "AI Equipment Loadout Parser",
-            promptTemplate = AiPromptTemplates.equipmentPrompt(),
-            placeholder = "Example: Wears mithril chainmail (+2 AC), a shadow cloak for stealth, brass spyglass goggles, and wields a flaming longsword...",
+            title = aiTab.dialogTitle,
+            promptTemplate = aiTab.promptTemplate(),
+            placeholder = aiTab.createPlaceholder,
             aiState = aiState,
             userSettings = userSettings,
             aiChatState = aiChatState,
             onSelectProvider = onSelectAiProvider,
             onSelectModel = onSelectAiModel,
             onSendAiChat = onSendAiChat,
-            onDismiss = { showEquipmentAi = false },
-            onImport = { rawText, _ ->
-                onParseEquipmentAi(rawText) { parsedSlots ->
-                    equipment = equipment.toMutableMap().apply { putAll(parsedSlots) }
-                    showEquipmentAi = false
+            onDismiss = { activeAiTab = null },
+            onImport = { rawText, useRegex ->
+                val handler = onAssistTabAi
+                if (handler != null) {
+                    handler(buildUpdatedCharacter(), aiTab, rawText, false, useRegex) { updated ->
+                        applyCharacterState(updated, "Updated ${aiTab.label} with AI.")
+                        activeAiTab = null
+                    }
+                } else if (aiTab == CharacterSheetAiTab.GEAR_AND_STATS) {
+                    onParseEquipmentAi(rawText) { parsedSlots ->
+                        equipment = equipment.toMutableMap().apply { putAll(parsedSlots) }
+                        activeAiTab = null
+                    }
                 }
-            }
+            },
+            canEditExisting = hasExisting && onAssistTabAi != null,
+            defaultEditMode = aiTab == CharacterSheetAiTab.INFO && hasExisting && initialCharacter.id.isNotBlank(),
+            showTargetPickerInEditMode = false,
+            editPromptPlaceholder = aiTab.editPlaceholder,
+            onEditExisting = if (onAssistTabAi != null) {
+                { _, instruction ->
+                    onAssistTabAi(buildUpdatedCharacter(), aiTab, instruction, true, false) { updated ->
+                        applyCharacterState(updated, "Edited ${aiTab.label} with AI.")
+                        activeAiTab = null
+                    }
+                }
+            } else null,
         )
     }
 

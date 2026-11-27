@@ -435,7 +435,7 @@ object CharacterParserHelpers {
     fun classifyEquipmentSlot(itemName: String): EquipmentSlot? {
         val lower = itemName.lowercase()
         return when {
-            listOf("hammer", "maul", "sword", "blade", "axe", "dagger", "knife", "bow", "crossbow", "staff", "wand", "rod", "mace", "flail", "spear", "halberd", "lance", "pike", "club", "rapier", "scimitar", "katana", "trident", "whip", "pistol", "rifle", "weapon", "ring", "signet")
+            listOf("hammer", "warhammer", "maul", "sword", "longsword", "shortsword", "broadsword", "greatsword", "blade", "axe", "battleaxe", "greataxe", "handaxe", "dagger", "knife", "bow", "longbow", "shortbow", "crossbow", "staff", "wand", "rod", "mace", "flail", "spear", "halberd", "lance", "pike", "club", "rapier", "scimitar", "katana", "trident", "whip", "pistol", "rifle", "weapon", "ring", "signet")
                 .any { Regex("\\b${Regex.escape(it)}s?\\b").containsMatchIn(lower) } -> EquipmentSlot.WEAPON_MAIN
 
             listOf("shield", "buckler", "pauldron", "epaulet", "shoulder")

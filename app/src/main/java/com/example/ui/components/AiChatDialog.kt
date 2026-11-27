@@ -26,18 +26,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -75,6 +80,7 @@ import com.example.ai.AiChatMode
 import com.example.ai.AiChatUiState
 import com.example.ai.AiModelDefaults
 import com.example.ai.AiProvider
+import com.example.data.SearchFilterUtil
 import com.example.data.UserSettings
 import kotlinx.coroutines.launch
 
@@ -86,6 +92,7 @@ fun AiChatDialog(
     aiChatState: AiChatUiState,
     onSendMessage: (String) -> Unit,
     onClearChat: () -> Unit,
+    onDeleteMessages: ((Set<String>) -> Unit)? = null,
     onSelectProvider: (AiProvider) -> Unit,
     onSelectModel: (String) -> Unit,
     onSendImagePrompt: ((String) -> Unit)? = null,
@@ -104,11 +111,19 @@ fun AiChatDialog(
     var draft by remember { mutableStateOf("") }
     var chatMode by remember { mutableStateOf(AiChatMode.TEXT) }
     var showModelPicker by remember { mutableStateOf(false) }
+    var showSearchBar by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var multiSelect by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf(setOf<String>()) }
     var pendingSafImageDataUrl by remember { mutableStateOf<String?>(null) }
     var fullScreenImage by remember { mutableStateOf<Pair<String, String>?>(null) }
     var galleryFeedback by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val clipboard = LocalClipboardManager.current
+
+    val visibleMessages = remember(aiChatState.messages, searchQuery) {
+        aiChatState.messages.filter { SearchFilterUtil.matchesAiChatMessageSearch(it, searchQuery) }
+    }
 
     val lastUserPrompt = remember(aiChatState.messages) {
         aiChatState.messages.lastOrNull { it.role == "user" }
@@ -180,17 +195,49 @@ fun AiChatDialog(
                         }
                     },
                     actions = {
+                        if (aiChatState.messages.isNotEmpty()) {
+                            IconButton(
+                                onClick = { showSearchBar = !showSearchBar },
+                                modifier = Modifier.testTag("search_ai_chat_button")
+                            ) {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = "Search AI Chat",
+                                    tint = if (showSearchBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (onDeleteMessages != null) {
+                                IconButton(
+                                    onClick = {
+                                        multiSelect = !multiSelect
+                                        selectedIds = emptySet()
+                                        if (multiSelect) showSearchBar = true
+                                    },
+                                    modifier = Modifier.testTag("multiselect_ai_chat_button")
+                                ) {
+                                    Icon(
+                                        Icons.Default.Checklist,
+                                        contentDescription = "Select AI Chat messages",
+                                        tint = if (multiSelect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                         FilterChip(
                             selected = showModelPicker,
                             onClick = { showModelPicker = !showModelPicker },
                             leadingIcon = {
                                 Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
                             },
-                            label = { Text("Model & API") },
+                            label = { Text("Model") },
                             modifier = Modifier.testTag("toggle_ai_model_picker_button")
                         )
                         IconButton(
-                            onClick = onClearChat,
+                            onClick = {
+                                onClearChat()
+                                selectedIds = emptySet()
+                                multiSelect = false
+                            },
                             enabled = aiChatState.messages.isNotEmpty(),
                             modifier = Modifier.testTag("clear_ai_chat_button")
                         ) {
@@ -259,6 +306,78 @@ fun AiChatDialog(
                     }
                 }
 
+                AnimatedVisibility(visible = showSearchBar && aiChatState.messages.isNotEmpty()) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search AI chat messages or #tags...") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear search")
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .testTag("ai_chat_search_input")
+                    )
+                }
+
+                if (multiSelect && onDeleteMessages != null && aiChatState.messages.isNotEmpty()) {
+                    val visibleIds = visibleMessages.map { it.id }.toSet()
+                    val allVisibleSelected = visibleIds.isNotEmpty() && visibleIds.all { it in selectedIds }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    selectedIds = if (allVisibleSelected) selectedIds - visibleIds else visibleIds
+                                },
+                                enabled = visibleMessages.isNotEmpty(),
+                                modifier = Modifier.testTag("select_all_ai_chat_button")
+                            ) {
+                                Icon(Icons.Default.SelectAll, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (allVisibleSelected) "Deselect All" else "Select All (${visibleMessages.size})")
+                            }
+                            if (selectedIds.isNotEmpty()) {
+                                TextButton(
+                                    onClick = { selectedIds = emptySet() },
+                                    modifier = Modifier.testTag("clear_selection_ai_chat_button")
+                                ) {
+                                    Text("Clear (${selectedIds.size})")
+                                }
+                            }
+                        }
+                        if (selectedIds.isNotEmpty()) {
+                            Button(
+                                onClick = {
+                                    onDeleteMessages(selectedIds)
+                                    selectedIds = emptySet()
+                                    multiSelect = false
+                                },
+                                modifier = Modifier.fillMaxWidth().testTag("batch_delete_ai_chat_button")
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Delete Selected (${selectedIds.size})")
+                            }
+                        }
+                    }
+                }
+
                 if (aiChatState.messages.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -288,6 +407,20 @@ fun AiChatDialog(
                             )
                         }
                     }
+                } else if (visibleMessages.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No AI chat messages match \"$searchQuery\".",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 } else {
                     LazyColumn(
                         state = listState,
@@ -297,12 +430,27 @@ fun AiChatDialog(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(aiChatState.messages, key = { it.id }) { msg ->
+                        items(visibleMessages, key = { it.id }) { msg ->
                             val isUser = msg.role == "user"
+                            val isSelected = msg.id in selectedIds
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = when {
+                                    multiSelect -> Arrangement.Start
+                                    isUser -> Arrangement.End
+                                    else -> Arrangement.Start
+                                }
                             ) {
+                                if (multiSelect) {
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { checked ->
+                                            selectedIds = if (checked) selectedIds + msg.id else selectedIds - msg.id
+                                        },
+                                        modifier = Modifier.testTag("select_ai_chat_msg_${msg.id}")
+                                    )
+                                }
                                 Surface(
                                     color = if (isUser) {
                                         MaterialTheme.colorScheme.primaryContainer
@@ -310,7 +458,11 @@ fun AiChatDialog(
                                         MaterialTheme.colorScheme.surfaceVariant
                                     },
                                     shape = MaterialTheme.shapes.medium,
-                                    modifier = Modifier.fillMaxWidth(0.92f)
+                                    modifier = Modifier
+                                        .then(if (multiSelect) Modifier.weight(1f) else Modifier.fillMaxWidth(0.92f))
+                                        .clickable(enabled = multiSelect) {
+                                            selectedIds = if (isSelected) selectedIds - msg.id else selectedIds + msg.id
+                                        }
                                 ) {
                                     Column(
                                         modifier = Modifier.padding(12.dp),

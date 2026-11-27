@@ -21,10 +21,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,6 +38,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,13 +55,16 @@ import androidx.compose.ui.unit.dp
 import com.example.ai.AiChatUiState
 import com.example.ai.AiPromptTemplates
 import com.example.ai.AiProvider
+import com.example.ai.CharacterSheetAiTab
 import com.example.data.Character
 import com.example.data.ChatMessage
 import com.example.data.EquipmentSlotItem
 import com.example.data.JsonCodecs
+import com.example.data.SearchFilterUtil
 import com.example.data.Story
 import com.example.data.UserSettings
 import com.example.data.WorldItem
+import com.example.ui.components.AiEditableTarget
 import com.example.ui.components.AiImportDialog
 import com.example.ui.components.FullImageViewerDialog
 import com.example.ui.components.IdeaGuideDialog
@@ -87,6 +93,8 @@ fun EntitiesTab(
     onDeleteCharacters: (List<String>) -> Unit,
     onImportAi: (rawText: String, useRegex: Boolean, onDone: () -> Unit) -> Unit,
     onParseEquipmentAi: (rawText: String, onParsed: (Map<String, EquipmentSlotItem>) -> Unit) -> Unit,
+    onEditCharactersAi: ((targets: List<Character>, instruction: String, onDone: () -> Unit) -> Unit)? = null,
+    onAssistTabAi: ((current: Character, tab: CharacterSheetAiTab, prompt: String, isEditExisting: Boolean, useRegex: Boolean, onDone: (Character) -> Unit) -> Unit)? = null,
     onResetAiState: () -> Unit,
     onJumpToLocation: (String) -> Unit = {},
     onShareCharacterToChat: ((Character) -> Unit)? = null,
@@ -96,13 +104,12 @@ fun EntitiesTab(
     val filtered = remember(characters, kind) { characters.filter { it.kind == kind } }
     var searchQuery by remember { mutableStateOf("") }
     val visibleList = remember(filtered, searchQuery) {
-        if (searchQuery.isBlank()) filtered
-        else filtered.filter {
-            it.name.contains(searchQuery, ignoreCase = true) ||
-                it.roleTitle.contains(searchQuery, ignoreCase = true) ||
-                it.locationName.contains(searchQuery, ignoreCase = true)
-        }
+        filtered.filter { SearchFilterUtil.matchesCharacterSearch(it, searchQuery) }
     }
+    val deletableVisible = remember(visibleList, isGmMode, currentUserId) {
+        visibleList.filter { isGmMode || it.ownerId == currentUserId }
+    }
+    val canMultiSelect = isGmMode || filtered.any { it.ownerId == currentUserId }
 
     var multiSelect by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
@@ -132,8 +139,15 @@ fun EntitiesTab(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search ${kind}s...") },
+                    placeholder = { Text("Search ${kind}s, #tags, powers...") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear search")
+                            }
+                        }
+                    },
                     singleLine = true,
                     modifier = Modifier.weight(1f).testTag("search_${kind}_input")
                 )
@@ -143,7 +157,7 @@ fun EntitiesTab(
                 ) {
                     Icon(Icons.Default.Lightbulb, contentDescription = "Idea Guide")
                 }
-                if (isGmMode) {
+                if (canMultiSelect) {
                     IconButton(
                         onClick = {
                             multiSelect = !multiSelect
@@ -151,7 +165,11 @@ fun EntitiesTab(
                         },
                         modifier = Modifier.testTag("multiselect_${kind}_button")
                     ) {
-                        Icon(Icons.Default.Checklist, contentDescription = "Multi-select")
+                        Icon(
+                            Icons.Default.Checklist,
+                            contentDescription = "Multi-select",
+                            tint = if (multiSelect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -184,34 +202,65 @@ fun EntitiesTab(
                         Text("New ${kind.replaceFirstChar { it.uppercase() }}")
                     }
 
-                    if (isGmMode) {
-                        OutlinedButton(
-                            onClick = {
-                                onResetAiState()
-                                showAiImport = true
-                            },
-                            modifier = Modifier.weight(1f).testTag("ai_import_${kind}_button")
-                        ) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("AI Import")
-                        }
+                    OutlinedButton(
+                        onClick = {
+                            onResetAiState()
+                            showAiImport = true
+                        },
+                        modifier = Modifier.weight(1f).testTag("ai_import_${kind}_button")
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("AI Create / Edit")
                     }
                 }
             }
 
-            if (multiSelect && selectedIds.isNotEmpty()) {
-                Button(
-                    onClick = {
-                        onDeleteCharacters(selectedIds.toList())
-                        selectedIds = emptySet()
-                        multiSelect = false
-                    },
-                    modifier = Modifier.fillMaxWidth().testTag("batch_delete_${kind}_button")
+            if (multiSelect) {
+                val visibleIds = deletableVisible.map { it.id }.toSet()
+                val allVisibleSelected = visibleIds.isNotEmpty() && visibleIds.all { it in selectedIds }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Delete, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Delete Selected (${selectedIds.size})")
+                    OutlinedButton(
+                        onClick = {
+                            selectedIds = if (allVisibleSelected) {
+                                selectedIds - visibleIds
+                            } else {
+                                visibleIds
+                            }
+                        },
+                        enabled = deletableVisible.isNotEmpty(),
+                        modifier = Modifier.testTag("select_all_${kind}_button")
+                    ) {
+                        Icon(Icons.Default.SelectAll, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (allVisibleSelected) "Deselect All" else "Select All (${deletableVisible.size})")
+                    }
+                    if (selectedIds.isNotEmpty()) {
+                        TextButton(
+                            onClick = { selectedIds = emptySet() },
+                            modifier = Modifier.testTag("clear_selection_${kind}_button")
+                        ) {
+                            Text("Clear (${selectedIds.size})")
+                        }
+                    }
+                }
+                if (selectedIds.isNotEmpty()) {
+                    Button(
+                        onClick = {
+                            onDeleteCharacters(selectedIds.toList())
+                            selectedIds = emptySet()
+                            multiSelect = false
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("batch_delete_${kind}_button")
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Delete Selected (${selectedIds.size})")
+                    }
                 }
             }
         }
@@ -222,7 +271,11 @@ fun EntitiesTab(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "No ${kind}s yet. Create one or import via Gemini AI!",
+                    if (searchQuery.isNotBlank()) {
+                        "No ${kind}s match \"$searchQuery\"."
+                    } else {
+                        "No ${kind}s yet. Create one or use AI Create / Edit!"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -244,7 +297,9 @@ fun EntitiesTab(
                             .fillMaxWidth()
                             .clickable {
                                 if (multiSelect) {
-                                    selectedIds = if (char.id in selectedIds) selectedIds - char.id else selectedIds + char.id
+                                    if (canEditThis) {
+                                        selectedIds = if (char.id in selectedIds) selectedIds - char.id else selectedIds + char.id
+                                    }
                                 } else {
                                     editingCharacter = char
                                 }
@@ -259,8 +314,11 @@ fun EntitiesTab(
                             if (multiSelect) {
                                 Checkbox(
                                     checked = char.id in selectedIds,
+                                    enabled = canEditThis,
                                     onCheckedChange = { checked ->
-                                        selectedIds = if (checked) selectedIds + char.id else selectedIds - char.id
+                                        if (canEditThis) {
+                                            selectedIds = if (checked) selectedIds + char.id else selectedIds - char.id
+                                        }
                                     }
                                 )
                             }
@@ -397,6 +455,7 @@ fun EntitiesTab(
             onGenerateAiImage = onGenerateAiImage,
             onSendAiChat = onSendAiChat,
             onParseEquipmentAi = onParseEquipmentAi,
+            onAssistTabAi = onAssistTabAi,
             onResetAiState = onResetAiState,
             onJumpToLocation = { loc ->
                 editingCharacter = null
@@ -437,8 +496,26 @@ fun EntitiesTab(
     }
 
     if (showAiImport) {
+        val editableChars = remember(filtered, isGmMode, currentUserId) {
+            filtered.filter { isGmMode || it.ownerId == currentUserId }
+        }
+        val editableTargets = remember(editableChars) {
+            editableChars.map { ch ->
+                val tags = JsonCodecs.decodePowers(ch.powersJson).flatMap { it.tags }.distinct().take(4)
+                val sub = buildString {
+                    append("${ch.roleTitle.ifBlank { ch.kind.uppercase() }} • Lvl ${ch.level}")
+                    if (ch.locationName.isNotBlank()) append(" • ${ch.locationName}")
+                    if (tags.isNotEmpty()) append(" • ${tags.joinToString(" ") { "#$it" }}")
+                }
+                AiEditableTarget(
+                    id = ch.id,
+                    label = "${ch.avatarEmoji} ${ch.name}",
+                    subtitle = sub,
+                )
+            }
+        }
         AiImportDialog(
-            title = "Import ${kind.replaceFirstChar { it.uppercase() }}s",
+            title = "AI ${kind.replaceFirstChar { it.uppercase() }}s",
             promptTemplate = AiPromptTemplates.characterPrompt(kind),
             placeholder = "Paste character notes or stat blocks:\nGoblin Skirmisher (HP: 14, AC: 13)\nClass: Ambush Raider...",
             aiState = aiState,
@@ -452,7 +529,18 @@ fun EntitiesTab(
                 onImportAi(raw, useRegex) {
                     showAiImport = false
                 }
-            }
+            },
+            existingTargets = editableTargets,
+            canEditExisting = onEditCharactersAi != null && editableTargets.isNotEmpty(),
+            editPromptPlaceholder = "Example: Level up selected units by 1, add Fireball power, or change location to Ironhold...",
+            onEditExisting = if (onEditCharactersAi != null) {
+                { selectedIdsToEdit, instruction ->
+                    val targets = editableChars.filter { it.id in selectedIdsToEdit }
+                    onEditCharactersAi(targets, instruction) {
+                        showAiImport = false
+                    }
+                }
+            } else null,
         )
     }
 

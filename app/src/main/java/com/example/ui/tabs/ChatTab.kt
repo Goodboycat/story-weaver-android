@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.AddReaction
 import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -49,11 +50,13 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -87,6 +90,7 @@ import com.example.data.Character
 import com.example.data.ChatEntityRef
 import com.example.data.ChatMessage
 import com.example.data.JsonCodecs
+import com.example.data.SearchFilterUtil
 import com.example.data.Story
 import com.example.data.WorldItem
 import com.example.ui.components.IdeaGuideDialog
@@ -116,6 +120,7 @@ fun ChatTab(
     onTogglePinMessage: (ChatMessage) -> Unit = {},
     onToggleReaction: (ChatMessage, String) -> Unit = { _, _ -> },
     onDeleteMessage: (String) -> Unit = {},
+    onDeleteMessages: (List<String>) -> Unit = {},
     onPinCharacter: (Character, targetUserId: String, note: String) -> Unit = { _, _, _ -> },
     onSlashRoll: (rawCommand: String, rollerName: String) -> Boolean = { _, _ -> false },
     onJumpToEntityTab: (refType: String, query: String) -> Unit = { _, _ -> },
@@ -132,6 +137,8 @@ fun ChatTab(
     var showSearchBar by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var activeFilter by remember { mutableStateOf("all") } // "all" | "pinned" | "ref" | "roll"
+    var multiSelect by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf(setOf<String>()) }
 
     var replyingTo by remember { mutableStateOf<ChatMessage?>(null) }
     var attachedRef by remember { mutableStateOf<ChatEntityRef?>(null) }
@@ -161,17 +168,13 @@ fun ChatTab(
                 "roll" -> msg.messageType == "roll"
                 else -> true
             }
-            val q = searchQuery.trim()
-            val qOk = q.isBlank() ||
-                msg.body.contains(q, ignoreCase = true) ||
-                msg.senderName.contains(q, ignoreCase = true) ||
-                msg.refTitle.contains(q, ignoreCase = true) ||
-                msg.refDescription.contains(q, ignoreCase = true) ||
-                msg.refTagsJson.contains(q, ignoreCase = true) ||
-                msg.targetCharacterName.contains(q, ignoreCase = true)
-            filterOk && qOk
+            filterOk && SearchFilterUtil.matchesChatMessageSearch(msg, searchQuery)
         }
     }
+    val deletableVisible = remember(visibleMessages, isGmMode, currentUserId) {
+        visibleMessages.filter { isGmMode || it.senderId == currentUserId }
+    }
+    val canMultiSelect = messages.any { isGmMode || it.senderId == currentUserId }
 
     val isOnline = remember(context) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -305,8 +308,26 @@ fun ChatTab(
                             Icon(
                                 Icons.Default.Search,
                                 contentDescription = "Search Chat",
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(18.dp),
+                                tint = if (showSearchBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                        if (canMultiSelect) {
+                            IconButton(
+                                onClick = {
+                                    multiSelect = !multiSelect
+                                    selectedIds = emptySet()
+                                    if (multiSelect) showSearchBar = true
+                                },
+                                modifier = Modifier.size(36.dp).testTag("multiselect_chat_button")
+                            ) {
+                                Icon(
+                                    Icons.Default.Checklist,
+                                    contentDescription = "Select messages",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = if (multiSelect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                         IconButton(
                             onClick = { showGuide = true },
@@ -408,7 +429,7 @@ fun ChatTab(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Search messages, powers, locations, characters...") },
+                placeholder = { Text("Search messages, #tags, powers, characters...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
@@ -423,6 +444,57 @@ fun ChatTab(
                     .padding(horizontal = 12.dp, vertical = 4.dp)
                     .testTag("chat_search_input")
             )
+        }
+
+        if (multiSelect) {
+            val visibleIds = deletableVisible.map { it.id }.toSet()
+            val allVisibleSelected = visibleIds.isNotEmpty() && visibleIds.all { it in selectedIds }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            selectedIds = if (allVisibleSelected) selectedIds - visibleIds else visibleIds
+                        },
+                        enabled = deletableVisible.isNotEmpty(),
+                        modifier = Modifier.testTag("select_all_chat_button")
+                    ) {
+                        Icon(Icons.Default.SelectAll, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (allVisibleSelected) "Deselect All" else "Select All (${deletableVisible.size})")
+                    }
+                    if (selectedIds.isNotEmpty()) {
+                        TextButton(
+                            onClick = { selectedIds = emptySet() },
+                            modifier = Modifier.testTag("clear_selection_chat_button")
+                        ) {
+                            Text("Clear (${selectedIds.size})")
+                        }
+                    }
+                }
+                if (selectedIds.isNotEmpty()) {
+                    Button(
+                        onClick = {
+                            onDeleteMessages(selectedIds.toList())
+                            selectedIds = emptySet()
+                            multiSelect = false
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("batch_delete_chat_button")
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Delete Selected (${selectedIds.size})")
+                    }
+                }
+            }
         }
 
         // Persistent Discord-Style Pinned Banner
@@ -497,11 +569,24 @@ fun ChatTab(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(visibleMessages, key = { it.id }) { msg ->
+                    val canDeleteMsg = isGmMode || msg.senderId == currentUserId
                     ChatMessageItem(
                         msg = msg,
                         currentUserId = currentUserId,
                         isGmMode = isGmMode,
                         isHighlighted = highlightedMessageId == msg.id,
+                        multiSelect = multiSelect,
+                        isSelected = msg.id in selectedIds,
+                        canSelect = canDeleteMsg,
+                        onToggleSelect = {
+                            if (canDeleteMsg) {
+                                selectedIds = if (msg.id in selectedIds) {
+                                    selectedIds - msg.id
+                                } else {
+                                    selectedIds + msg.id
+                                }
+                            }
+                        },
                         timeFormatter = timeFormatter,
                         onReply = { replyingTo = msg },
                         onCopy = { copyMessageText(msg) },
@@ -696,6 +781,10 @@ private fun ChatMessageItem(
     currentUserId: String,
     isGmMode: Boolean,
     isHighlighted: Boolean,
+    multiSelect: Boolean = false,
+    isSelected: Boolean = false,
+    canSelect: Boolean = false,
+    onToggleSelect: () -> Unit = {},
     timeFormatter: SimpleDateFormat,
     onReply: () -> Unit,
     onCopy: () -> Unit,
@@ -730,18 +819,28 @@ private fun ChatMessageItem(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = when {
+            multiSelect -> Arrangement.Start
             isSystem -> Arrangement.Center
             isMine -> Arrangement.End
             else -> Arrangement.Start
         }
     ) {
+        if (multiSelect) {
+            Checkbox(
+                checked = isSelected,
+                enabled = canSelect,
+                onCheckedChange = { if (canSelect) onToggleSelect() },
+                modifier = Modifier.testTag("select_chat_msg_${msg.id}")
+            )
+        }
         Surface(
             color = bubbleColor,
             shape = MaterialTheme.shapes.medium,
             tonalElevation = if (msg.pinned) 3.dp else 1.dp,
             modifier = Modifier
-                .fillMaxWidth(0.90f)
+                .then(if (multiSelect) Modifier.weight(1f) else Modifier.fillMaxWidth(0.90f))
                 .then(
                     if (isHighlighted || isForMe) {
                         Modifier.border(
@@ -753,8 +852,12 @@ private fun ChatMessageItem(
                 )
                 .clip(MaterialTheme.shapes.medium)
                 .combinedClickable(
-                    onClick = {},
-                    onLongClick = { menuExpanded = true }
+                    onClick = {
+                        if (multiSelect && canSelect) onToggleSelect()
+                    },
+                    onLongClick = {
+                        if (!multiSelect) menuExpanded = true
+                    }
                 )
                 .testTag("chat_message_${msg.id}")
         ) {

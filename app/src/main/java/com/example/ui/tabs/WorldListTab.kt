@@ -30,11 +30,13 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -70,9 +72,11 @@ import com.example.ai.AiPromptTemplates
 import com.example.ai.AiProvider
 import com.example.ai.EmojiHelper
 import com.example.data.JsonCodecs
+import com.example.data.SearchFilterUtil
 import com.example.data.Story
 import com.example.data.UserSettings
 import com.example.data.WorldItem
+import com.example.ui.components.AiEditableTarget
 import com.example.ui.components.AiImageGenerateDialog
 import com.example.ui.components.AiImportDialog
 import com.example.ui.components.AllEmojiPickerDialog
@@ -104,6 +108,8 @@ fun WorldListTab(
     onReorder: (List<WorldItem>) -> Unit,
     onDeleteItems: (List<String>) -> Unit,
     onImportAi: (rawText: String, startOrder: Int, useRegex: Boolean, onDone: () -> Unit) -> Unit,
+    onEditWorldItemsAi: ((targets: List<WorldItem>, instruction: String, onDone: () -> Unit) -> Unit)? = null,
+    onAssistSingleWorldItemAi: ((current: WorldItem, prompt: String, isEditExisting: Boolean, useRegex: Boolean, onApplied: (WorldItem) -> Unit) -> Unit)? = null,
     onResetAiState: () -> Unit,
     onShareToChat: ((WorldItem) -> Unit)? = null,
 ) {
@@ -118,12 +124,7 @@ fun WorldListTab(
         }
     }
     val visible = remember(categoryItems, searchQuery) {
-        if (searchQuery.isBlank()) categoryItems
-        else categoryItems.filter {
-            it.title.contains(searchQuery, ignoreCase = true) ||
-                it.subtitle.contains(searchQuery, ignoreCase = true) ||
-                it.description.contains(searchQuery, ignoreCase = true)
-        }
+        categoryItems.filter { SearchFilterUtil.matchesWorldItemSearch(it, searchQuery) }
     }
 
     var multiSelect by remember { mutableStateOf(false) }
@@ -159,8 +160,15 @@ fun WorldListTab(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search ${category}s...") },
+                    placeholder = { Text("Search ${category}s, #tags...") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear search")
+                            }
+                        }
+                    },
                     singleLine = true,
                     modifier = Modifier.weight(1f).testTag("search_${category}_input")
                 )
@@ -168,11 +176,18 @@ fun WorldListTab(
                     Icon(Icons.Default.Lightbulb, contentDescription = "Idea Guide")
                 }
                 if (isGmMode) {
-                    IconButton(onClick = {
-                        multiSelect = !multiSelect
-                        selectedIds = emptySet()
-                    }) {
-                        Icon(Icons.Default.Checklist, contentDescription = "Select")
+                    IconButton(
+                        onClick = {
+                            multiSelect = !multiSelect
+                            selectedIds = emptySet()
+                        },
+                        modifier = Modifier.testTag("multiselect_${category}_button")
+                    ) {
+                        Icon(
+                            Icons.Default.Checklist,
+                            contentDescription = "Select",
+                            tint = if (multiSelect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -209,23 +224,56 @@ fun WorldListTab(
                     ) {
                         Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("AI Import")
+                        Text("AI Create / Edit")
                     }
                 }
             }
 
-            if (multiSelect && selectedIds.isNotEmpty()) {
-                Button(
-                    onClick = {
-                        onDeleteItems(selectedIds.toList())
-                        selectedIds = emptySet()
-                        multiSelect = false
-                    },
-                    modifier = Modifier.fillMaxWidth()
+            if (multiSelect) {
+                val visibleIds = visible.map { it.id }.toSet()
+                val allVisibleSelected = visibleIds.isNotEmpty() && visibleIds.all { it in selectedIds }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Delete, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Delete Selected (${selectedIds.size})")
+                    OutlinedButton(
+                        onClick = {
+                            selectedIds = if (allVisibleSelected) {
+                                selectedIds - visibleIds
+                            } else {
+                                visibleIds
+                            }
+                        },
+                        enabled = visible.isNotEmpty(),
+                        modifier = Modifier.testTag("select_all_${category}_button")
+                    ) {
+                        Icon(Icons.Default.SelectAll, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (allVisibleSelected) "Deselect All" else "Select All (${visible.size})")
+                    }
+                    if (selectedIds.isNotEmpty()) {
+                        TextButton(
+                            onClick = { selectedIds = emptySet() },
+                            modifier = Modifier.testTag("clear_selection_${category}_button")
+                        ) {
+                            Text("Clear (${selectedIds.size})")
+                        }
+                    }
+                }
+                if (selectedIds.isNotEmpty()) {
+                    Button(
+                        onClick = {
+                            onDeleteItems(selectedIds.toList())
+                            selectedIds = emptySet()
+                            multiSelect = false
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("batch_delete_${category}_button")
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Delete Selected (${selectedIds.size})")
+                    }
                 }
             }
         }
@@ -236,7 +284,11 @@ fun WorldListTab(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "No ${category}s yet. Create cards or import with AI!",
+                    if (searchQuery.isNotBlank()) {
+                        "No ${category}s match \"$searchQuery\"."
+                    } else {
+                        "No ${category}s yet. Create cards or use AI Create / Edit!"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -389,6 +441,7 @@ fun WorldListTab(
         var tagsText by remember(current) { mutableStateOf(JsonCodecs.decodeStringList(current.tagsJson).joinToString(", ")) }
         var showEmojiPicker by remember(current) { mutableStateOf(false) }
         var showImageGen by remember(current) { mutableStateOf(false) }
+        var showSingleAiEdit by remember(current) { mutableStateOf(false) }
 
         val worldImagePicker = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.PickVisualMedia()
@@ -444,6 +497,19 @@ fun WorldListTab(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.weight(1f)
                         ) {
+                            if (onAssistSingleWorldItemAi != null) {
+                                OutlinedButton(
+                                    onClick = {
+                                        onResetAiState()
+                                        showSingleAiEdit = true
+                                    },
+                                    modifier = Modifier.testTag("ai_edit_single_${category}_button")
+                                ) {
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("AI Create / Edit")
+                                }
+                            }
                             OutlinedButton(
                                 onClick = { showImageGen = true },
                                 modifier = Modifier.testTag("generate_world_image_button")
@@ -589,11 +655,77 @@ fun WorldListTab(
                 onDismiss = { showImageGen = false }
             )
         }
+
+        if (showSingleAiEdit && onAssistSingleWorldItemAi != null) {
+            val draftTags = tagsText.split(",").map { it.trim().removePrefix("#") }.filter { it.isNotBlank() }
+            val draftItem = current.copy(
+                title = title.trim(),
+                subtitle = subtitle.trim(),
+                description = description.trim(),
+                iconEmoji = emoji,
+                imageUrl = imageUrl,
+                tagsJson = JsonCodecs.encodeStringList(draftTags),
+            )
+            val hasDraftContent = current.id.isNotBlank() || title.isNotBlank() || description.isNotBlank()
+            AiImportDialog(
+                title = "AI ${category.replaceFirstChar { it.uppercase() }} Assistant",
+                promptTemplate = AiPromptTemplates.worldItemPrompt(category),
+                placeholder = "Describe this ${category} or paste notes to populate its fields...",
+                aiState = aiState,
+                userSettings = userSettings,
+                aiChatState = aiChatState,
+                onSelectProvider = onSelectAiProvider,
+                onSelectModel = onSelectAiModel,
+                onSendAiChat = onSendAiChat,
+                onDismiss = { showSingleAiEdit = false },
+                onImport = { raw, useRegex ->
+                    onAssistSingleWorldItemAi(draftItem, raw, false, useRegex) { updated ->
+                        title = updated.title
+                        subtitle = updated.subtitle
+                        description = updated.description
+                        emoji = updated.iconEmoji.ifBlank { defaultEmoji }
+                        tagsText = JsonCodecs.decodeStringList(updated.tagsJson).joinToString(", ")
+                        showSingleAiEdit = false
+                    }
+                },
+                canEditExisting = hasDraftContent,
+                defaultEditMode = current.id.isNotBlank(),
+                showTargetPickerInEditMode = false,
+                editPromptPlaceholder = "Example: Make the description more mysterious, add secret passages, and add #dungeon tag...",
+                onEditExisting = { _, instruction ->
+                    onAssistSingleWorldItemAi(draftItem, instruction, true, false) { updated ->
+                        title = updated.title
+                        subtitle = updated.subtitle
+                        description = updated.description
+                        emoji = updated.iconEmoji.ifBlank { defaultEmoji }
+                        tagsText = JsonCodecs.decodeStringList(updated.tagsJson).joinToString(", ")
+                        showSingleAiEdit = false
+                    }
+                }
+            )
+        }
     }
 
     if (showAiImport) {
+        val editableTargets = remember(categoryItems) {
+            categoryItems.map { item ->
+                val tags = JsonCodecs.decodeStringList(item.tagsJson).take(4)
+                val sub = buildString {
+                    if (item.subtitle.isNotBlank()) append(item.subtitle)
+                    if (tags.isNotEmpty()) {
+                        if (isNotEmpty()) append(" • ")
+                        append(tags.joinToString(" ") { "#$it" })
+                    }
+                }
+                AiEditableTarget(
+                    id = item.id,
+                    label = "${item.iconEmoji.ifBlank { defaultEmoji }} ${item.title}",
+                    subtitle = sub,
+                )
+            }
+        }
         AiImportDialog(
-            title = "Import ${category.replaceFirstChar { it.uppercase() }}s",
+            title = "AI ${category.replaceFirstChar { it.uppercase() }}s",
             promptTemplate = AiPromptTemplates.worldItemPrompt(category),
             placeholder = "Paste notes separated by blank lines or paragraphs...",
             aiState = aiState,
@@ -607,7 +739,18 @@ fun WorldListTab(
                 onImportAi(raw, categoryItems.size, useRegex) {
                     showAiImport = false
                 }
-            }
+            },
+            existingTargets = editableTargets,
+            canEditExisting = onEditWorldItemsAi != null && editableTargets.isNotEmpty(),
+            editPromptPlaceholder = "Example: Expand lore details, add #haunted tag, or rebalance damage/rarity...",
+            onEditExisting = if (onEditWorldItemsAi != null) {
+                { selectedIdsToEdit, instruction ->
+                    val targets = categoryItems.filter { it.id in selectedIdsToEdit }
+                    onEditWorldItemsAi(targets, instruction) {
+                        showAiImport = false
+                    }
+                }
+            } else null,
         )
     }
 
