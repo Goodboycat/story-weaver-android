@@ -64,7 +64,7 @@ service cloud.firestore {
         data.mapHeight is int && data.mapHeight >= 4 && data.mapHeight <= 30 &&
         data.mapGridJson is string && data.mapGridJson.size() <= 450000 &&
         data.mapTokensJson is string && data.mapTokensJson.size() <= 100000 &&
-        (!('mapBackgroundUrl' in data) || data.mapBackgroundUrl == null || (data.mapBackgroundUrl is string && data.mapBackgroundUrl.size() <= 250000)) &&
+        (!('mapBackgroundUrl' in data) || data.mapBackgroundUrl == null || (data.mapBackgroundUrl is string && data.mapBackgroundUrl.size() <= 400000)) &&
         data.guideProgressJson is string && data.guideProgressJson.size() <= 50000 &&
         (!('nextSessionAtMillis' in data) || (data.nextSessionAtMillis is int && data.nextSessionAtMillis >= 0 && data.nextSessionAtMillis <= 4102444800000)) &&
         (!('nextSessionNote' in data) || (data.nextSessionNote is string && data.nextSessionNote.size() <= 120)) &&
@@ -90,7 +90,7 @@ service cloud.firestore {
         data.inventoryJson is string && data.inventoryJson.size() <= 50000 &&
         data.missionsJson is string && data.missionsJson.size() <= 50000 &&
         data.powersJson is string && data.powersJson.size() <= 50000 &&
-        data.equipmentJson is string && data.equipmentJson.size() <= 50000 &&
+        data.equipmentJson is string && data.equipmentJson.size() <= 250000 &&
         data.statsJson is string && data.statsJson.size() <= 50000 &&
         isValidTimestamp(data.createdAt) &&
         isValidTimestamp(data.updatedAt);
@@ -107,6 +107,7 @@ service cloud.firestore {
         data.description is string && data.description.size() <= 10000 &&
         data.iconName is string && data.iconName.size() <= 60 &&
         data.iconEmoji is string && data.iconEmoji.size() <= 16 &&
+        (!('imageUrl' in data) || data.imageUrl == null || (data.imageUrl is string && data.imageUrl.size() <= 250000)) &&
         data.sortOrder is int && data.sortOrder >= 0 && data.sortOrder <= 100000 &&
         data.tagsJson is string && data.tagsJson.size() <= 5000 &&
         isValidTimestamp(data.createdAt) &&
@@ -304,7 +305,7 @@ service cloud.firestore {
           ]) &&
           incoming().keys().hasOnly([
             'storyId', 'gmUserId', 'ownerId', 'memberUids', 'category', 'title',
-            'subtitle', 'description', 'iconName', 'iconEmoji', 'sortOrder',
+            'subtitle', 'description', 'iconName', 'iconEmoji', 'imageUrl', 'sortOrder',
             'tagsJson', 'createdAt', 'updatedAt'
           ]);
         allow update: if isSignedIn() &&
@@ -318,7 +319,7 @@ service cloud.firestore {
           existing().gmUserId == request.auth.uid &&
           incoming().diff(existing()).affectedKeys().hasOnly([
             'category', 'title', 'subtitle', 'description', 'iconName',
-            'iconEmoji', 'sortOrder', 'tagsJson', 'memberUids', 'updatedAt'
+            'iconEmoji', 'imageUrl', 'sortOrder', 'tagsJson', 'memberUids', 'updatedAt'
           ]);
         allow delete: if isSignedIn() && isValidId(storyId) && isValidId(itemId) && existing().gmUserId == request.auth.uid;
       }

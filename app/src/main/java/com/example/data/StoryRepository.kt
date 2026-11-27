@@ -333,7 +333,7 @@ class StoryRepository(
                 "mapHeight" to h,
                 "mapGridJson" to gridJson.take(450_000),
                 "mapTokensJson" to tokensJson.take(100_000),
-                "mapBackgroundUrl" to backgroundUrl?.take(250_000),
+                "mapBackgroundUrl" to backgroundUrl?.take(400_000),
                 "updatedAt" to FieldValue.serverTimestamp(),
             )
             if (backgroundUrl == null) {
@@ -499,7 +499,7 @@ class StoryRepository(
                     put("inventoryJson", character.inventoryJson.take(50_000))
                     put("missionsJson", character.missionsJson.take(50_000))
                     put("powersJson", character.powersJson.take(50_000))
-                    put("equipmentJson", character.equipmentJson.take(50_000))
+                    put("equipmentJson", character.equipmentJson.take(250_000))
                     put("statsJson", character.statsJson.take(50_000))
                     put("createdAt", FieldValue.serverTimestamp())
                     put("updatedAt", FieldValue.serverTimestamp())
@@ -527,7 +527,7 @@ class StoryRepository(
                     "inventoryJson" to character.inventoryJson.take(50_000),
                     "missionsJson" to character.missionsJson.take(50_000),
                     "powersJson" to character.powersJson.take(50_000),
-                    "equipmentJson" to character.equipmentJson.take(50_000),
+                    "equipmentJson" to character.equipmentJson.take(250_000),
                     "statsJson" to character.statsJson.take(50_000),
                     "memberUids" to story.memberUids.ifEmpty { character.memberUids },
                     "updatedAt" to FieldValue.serverTimestamp(),
@@ -617,22 +617,23 @@ class StoryRepository(
                 .collection("world_items").document(itemId)
 
             if (isNew) {
-                val payload = mapOf(
-                    "storyId" to story.id,
-                    "gmUserId" to story.gmUserId,
-                    "ownerId" to uid,
-                    "memberUids" to story.memberUids.ifEmpty { listOf(uid) },
-                    "category" to item.category,
-                    "title" to cleanTitle,
-                    "subtitle" to item.subtitle.take(120),
-                    "description" to item.description.take(10_000),
-                    "iconName" to item.iconName.take(60),
-                    "iconEmoji" to item.iconEmoji.take(16),
-                    "sortOrder" to item.sortOrder.coerceIn(0L, 100_000L),
-                    "tagsJson" to item.tagsJson.take(5000),
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                )
+                val payload = buildMap<String, Any> {
+                    put("storyId", story.id)
+                    put("gmUserId", story.gmUserId)
+                    put("ownerId", uid)
+                    put("memberUids", story.memberUids.ifEmpty { listOf(uid) })
+                    put("category", item.category)
+                    put("title", cleanTitle)
+                    put("subtitle", item.subtitle.take(120))
+                    put("description", item.description.take(10_000))
+                    put("iconName", item.iconName.take(60))
+                    put("iconEmoji", item.iconEmoji.take(16))
+                    item.imageUrl?.take(250_000)?.let { put("imageUrl", it) }
+                    put("sortOrder", item.sortOrder.coerceIn(0L, 100_000L))
+                    put("tagsJson", item.tagsJson.take(5000))
+                    put("createdAt", FieldValue.serverTimestamp())
+                    put("updatedAt", FieldValue.serverTimestamp())
+                }
                 docRef.set(payload).await()
                 appendLogInternal(
                     storyId = story.id,
@@ -642,20 +643,20 @@ class StoryRepository(
                     summary = "Added ${item.category}: $cleanTitle",
                 )
             } else {
-                docRef.update(
-                    mapOf(
-                        "category" to item.category,
-                        "title" to cleanTitle,
-                        "subtitle" to item.subtitle.take(120),
-                        "description" to item.description.take(10_000),
-                        "iconName" to item.iconName.take(60),
-                        "iconEmoji" to item.iconEmoji.take(16),
-                        "sortOrder" to item.sortOrder.coerceIn(0L, 100_000L),
-                        "tagsJson" to item.tagsJson.take(5000),
-                        "memberUids" to story.memberUids.ifEmpty { item.memberUids },
-                        "updatedAt" to FieldValue.serverTimestamp(),
-                    )
-                ).await()
+                val updates = mutableMapOf<String, Any?>(
+                    "category" to item.category,
+                    "title" to cleanTitle,
+                    "subtitle" to item.subtitle.take(120),
+                    "description" to item.description.take(10_000),
+                    "iconName" to item.iconName.take(60),
+                    "iconEmoji" to item.iconEmoji.take(16),
+                    "imageUrl" to item.imageUrl?.take(250_000),
+                    "sortOrder" to item.sortOrder.coerceIn(0L, 100_000L),
+                    "tagsJson" to item.tagsJson.take(5000),
+                    "memberUids" to story.memberUids.ifEmpty { item.memberUids },
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+                docRef.update(updates).await()
             }
             Result.success(itemId)
         } catch (e: CancellationException) {

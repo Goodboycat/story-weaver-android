@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Code
@@ -21,9 +22,10 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -43,6 +45,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.ai.AiImageGeneratorService
 import com.example.ai.AiModelDefaults
 import com.example.ai.AiProvider
 import com.example.ai.UnorouterClient
@@ -56,10 +59,16 @@ fun AiModelSelectorBar(
     onSelectModel: (String) -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
-    endpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
+    endpointUrl: String = AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT,
     apiKey: String = "",
     onSelectEndpointUrl: ((String) -> Unit)? = null,
     onSelectApiKey: ((String) -> Unit)? = null,
+    imageEndpointUrl: String = AiModelDefaults.DEFAULT_IMAGE_ENDPOINT,
+    imageModel: String = AiModelDefaults.DEFAULT_IMAGE_MODEL,
+    imageApiKey: String = "",
+    onSelectImageEndpointUrl: ((String) -> Unit)? = null,
+    onSelectImageModel: ((String) -> Unit)? = null,
+    onSelectImageApiKey: ((String) -> Unit)? = null,
     showAdvancedApiConfig: Boolean = false,
 ) {
     var draftModel by remember(selectedModel) { mutableStateOf(selectedModel) }
@@ -69,13 +78,26 @@ fun AiModelSelectorBar(
     var showCurlDialog by remember { mutableStateOf(false) }
     var curlFeedback by remember { mutableStateOf<String?>(null) }
 
-    val presets = if (selectedProvider == AiProvider.UNOROUTER) {
-        AiModelDefaults.presetUnorouterModels
-    } else {
-        AiModelDefaults.presetGeminiModels
+    var draftImageEndpoint by remember(imageEndpointUrl) { mutableStateOf(imageEndpointUrl) }
+    var draftImageModel by remember(imageModel) { mutableStateOf(imageModel) }
+    var draftImageApiKey by remember(imageApiKey) { mutableStateOf(imageApiKey) }
+    var showImageKeyText by remember { mutableStateOf(false) }
+    var imageFeedback by remember { mutableStateOf<String?>(null) }
+
+    val presets = when (selectedProvider) {
+        AiProvider.OPENROUTER -> AiModelDefaults.presetOpenRouterModels
+        AiProvider.UNOROUTER -> AiModelDefaults.presetUnorouterModels
+        AiProvider.GEMINI -> AiModelDefaults.presetGeminiModels
     }
-    val unorouterReady = remember(apiKey) { UnorouterClient.isConfigured(apiKey) }
+    val isExternalRest = selectedProvider != AiProvider.GEMINI
+    val apiReady = remember(apiKey, selectedProvider) {
+        UnorouterClient.isConfigured(apiKey, selectedProvider)
+    }
     val endpointValid = UnorouterClient.isValidEndpointUrl(draftEndpoint)
+    val imageEndpointValid = UnorouterClient.isValidEndpointUrl(draftImageEndpoint)
+    val imageApiReady = remember(imageApiKey, apiKey, imageEndpointUrl) {
+        AiImageGeneratorService.isConfigured(imageApiKey, apiKey, imageEndpointUrl)
+    }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
@@ -117,7 +139,7 @@ fun AiModelSelectorBar(
                 }
             }
 
-            if (selectedProvider == AiProvider.UNOROUTER && !unorouterReady) {
+            if (isExternalRest && !apiReady) {
                 Surface(
                     color = MaterialTheme.colorScheme.tertiaryContainer,
                     shape = MaterialTheme.shapes.small,
@@ -138,14 +160,14 @@ fun AiModelSelectorBar(
                             text = if (showAdvancedApiConfig) {
                                 "Enter your API key below (or paste a cURL command) to enable this endpoint."
                             } else {
-                                "Enter your API key in Settings (free, no billing plan needed) or use Gemini (Firebase AI)."
+                                "Configure OPENROUTER_API_KEY in AI Studio Secrets or enter your key in Settings."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
                     }
                 }
-            } else if (selectedProvider == AiProvider.UNOROUTER && showAdvancedApiConfig) {
+            } else if (isExternalRest && showAdvancedApiConfig) {
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
                     shape = MaterialTheme.shapes.small,
@@ -162,12 +184,16 @@ fun AiModelSelectorBar(
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
                         )
+                        val activeSecretLabel = when {
+                            apiKey.isNotBlank() -> "Using custom API key saved on this device."
+                            selectedProvider == AiProvider.OPENROUTER && UnorouterClient.hasOpenRouterBuildConfigKey() ->
+                                "Using OPENROUTER_API_KEY from AI Studio Secrets."
+                            UnorouterClient.hasBuildConfigKey() ->
+                                "Using UNOROUTER_API_KEY from AI Studio Secrets."
+                            else -> "Using OpenRouter build secret from AI Studio Secrets."
+                        }
                         Text(
-                            text = if (apiKey.isNotBlank()) {
-                                "Using custom API key saved on this device."
-                            } else {
-                                "Using build secret UNOROUTER_API_KEY (override below anytime)."
-                            },
+                            text = activeSecretLabel,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
@@ -183,8 +209,8 @@ fun AiModelSelectorBar(
                 OutlinedTextField(
                     value = draftModel,
                     onValueChange = { draftModel = it },
-                    label = { Text("Model ID") },
-                    placeholder = { Text(AiModelDefaults.DEFAULT_UNOROUTER_MODEL) },
+                    label = { Text("Chat / Parser Model ID") },
+                    placeholder = { Text(AiModelDefaults.DEFAULT_OPENROUTER_MODEL) },
                     singleLine = true,
                     modifier = Modifier.weight(1f).testTag("ai_model_input")
                 )
@@ -228,7 +254,26 @@ fun AiModelSelectorBar(
                 }
             }
 
-            if (showAdvancedApiConfig && selectedProvider == AiProvider.UNOROUTER) {
+            if (showAdvancedApiConfig && isExternalRest) {
+                if (onSelectEndpointUrl != null) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        AiModelDefaults.presetWebsiteEndpoints.forEach { (siteLabel, siteUrl) ->
+                            FilterChip(
+                                selected = endpointUrl.equals(siteUrl, ignoreCase = true),
+                                onClick = {
+                                    draftEndpoint = siteUrl
+                                    onSelectEndpointUrl.invoke(siteUrl)
+                                    curlFeedback = "Switched website endpoint to $siteLabel."
+                                },
+                                label = { Text(siteLabel, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.testTag("ai_website_preset_${siteLabel.lowercase()}")
+                            )
+                        }
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -237,7 +282,7 @@ fun AiModelSelectorBar(
                     OutlinedTextField(
                         value = draftEndpoint,
                         onValueChange = { draftEndpoint = it },
-                        label = { Text("API Endpoint URL") },
+                        label = { Text("Website Provider / Endpoint URL") },
                         placeholder = { Text(AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT) },
                         isError = draftEndpoint.isNotBlank() && !endpointValid,
                         singleLine = true,
@@ -273,8 +318,8 @@ fun AiModelSelectorBar(
                     OutlinedTextField(
                         value = draftApiKey,
                         onValueChange = { draftApiKey = it },
-                        label = { Text("API Key (Bearer Token)") },
-                        placeholder = { Text("sk-...") },
+                        label = { Text("Chat / Parser API Key Override") },
+                        placeholder = { Text("Leave blank to use Secrets key") },
                         singleLine = true,
                         visualTransformation = if (showApiKeyText) {
                             VisualTransformation.None
@@ -320,14 +365,24 @@ fun AiModelSelectorBar(
                         Spacer(Modifier.width(6.dp))
                         Text("Import cURL", maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    if (apiKey.isNotBlank() || endpointUrl != AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT) {
+                    if (apiKey.isNotBlank() || endpointUrl != AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT) {
                         OutlinedButton(
                             onClick = {
-                                draftEndpoint = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT
-                                draftModel = AiModelDefaults.DEFAULT_UNOROUTER_MODEL
+                                val defUrl = if (selectedProvider == AiProvider.OPENROUTER) {
+                                    AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT
+                                } else {
+                                    AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT
+                                }
+                                val defModel = if (selectedProvider == AiProvider.OPENROUTER) {
+                                    AiModelDefaults.DEFAULT_OPENROUTER_MODEL
+                                } else {
+                                    AiModelDefaults.DEFAULT_UNOROUTER_MODEL
+                                }
+                                draftEndpoint = defUrl
+                                draftModel = defModel
                                 draftApiKey = ""
-                                onSelectEndpointUrl?.invoke(AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT)
-                                onSelectModel(AiModelDefaults.DEFAULT_UNOROUTER_MODEL)
+                                onSelectEndpointUrl?.invoke(defUrl)
+                                onSelectModel(defModel)
                                 onSelectApiKey?.invoke("")
                                 curlFeedback = "Reset endpoint, model, and custom key."
                             },
@@ -353,18 +408,178 @@ fun AiModelSelectorBar(
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    val maskedKey = if (UnorouterClient.isConfigured(draftApiKey)) {
+                    val maskedKey = if (UnorouterClient.isConfigured(draftApiKey, selectedProvider)) {
                         "Bearer ••••••••"
                     } else {
                         "Bearer <not set>"
                     }
+                    val previewUrl = UnorouterClient.resolveEndpointUrl(selectedProvider, draftEndpoint)
                     Text(
-                        text = "POST ${draftEndpoint.trim().ifBlank { AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT }}\n" +
+                        text = "POST $previewUrl\n" +
                             "Authorization: $maskedKey\n" +
-                            "{\"model\": \"${draftModel.trim().ifBlank { AiModelDefaults.DEFAULT_UNOROUTER_MODEL }}\", \"messages\": [...]}",
+                            "{\"model\": \"${draftModel.trim().ifBlank { AiModelDefaults.DEFAULT_OPENROUTER_MODEL }}\", \"messages\": [...]}",
                         style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(8.dp)
+                    )
+                }
+            }
+
+            if (showAdvancedApiConfig && onSelectImageModel != null) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "AI Image Generator API",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Text(
+                    text = if (imageApiReady) {
+                        if (imageApiKey.isNotBlank()) "Using custom Image API key."
+                        else "Ready using configured Secrets / API key."
+                    } else {
+                        "Add UNOROUTER_API_KEY / OPENROUTER_API_KEY in AI Studio Secrets or enter an API key below."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = draftImageModel,
+                        onValueChange = { draftImageModel = it },
+                        label = { Text("Image Generator Model") },
+                        placeholder = { Text(AiModelDefaults.DEFAULT_IMAGE_MODEL) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f).testTag("ai_image_model_input")
+                    )
+                    Button(
+                        onClick = {
+                            val trimmed = draftImageModel.trim()
+                            if (trimmed.isNotEmpty()) {
+                                onSelectImageModel(trimmed)
+                                imageFeedback = "Image model updated."
+                            }
+                        },
+                        enabled = draftImageModel.isNotBlank() && draftImageModel.trim() != imageModel,
+                        modifier = Modifier.testTag("apply_ai_image_model_button")
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = "Apply image model", modifier = Modifier.size(16.dp))
+                    }
+                }
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    AiModelDefaults.presetImageModels.forEach { preset ->
+                        FilterChip(
+                            selected = imageModel == preset,
+                            onClick = {
+                                draftImageModel = preset
+                                onSelectImageModel(preset)
+                            },
+                            label = {
+                                Text(
+                                    text = preset.substringAfter("/"),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = draftImageEndpoint,
+                        onValueChange = { draftImageEndpoint = it },
+                        label = { Text("Image API Endpoint URL") },
+                        placeholder = { Text(AiModelDefaults.DEFAULT_IMAGE_ENDPOINT) },
+                        isError = draftImageEndpoint.isNotBlank() && !imageEndpointValid,
+                        singleLine = true,
+                        modifier = Modifier.weight(1f).testTag("ai_image_endpoint_input")
+                    )
+                    Button(
+                        onClick = {
+                            val trimmed = draftImageEndpoint.trim()
+                            if (UnorouterClient.isValidEndpointUrl(trimmed)) {
+                                onSelectImageEndpointUrl?.invoke(trimmed)
+                                imageFeedback = "Image endpoint updated."
+                            }
+                        },
+                        enabled = onSelectImageEndpointUrl != null && imageEndpointValid && draftImageEndpoint.trim() != imageEndpointUrl,
+                        modifier = Modifier.testTag("apply_ai_image_endpoint_button")
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = "Apply image endpoint", modifier = Modifier.size(16.dp))
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = draftImageApiKey,
+                        onValueChange = { draftImageApiKey = it },
+                        label = { Text("Image API Key Override (Optional)") },
+                        placeholder = { Text("Uses OPENROUTER_API_KEY if blank") },
+                        singleLine = true,
+                        visualTransformation = if (showImageKeyText) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { showImageKeyText = !showImageKeyText }) {
+                                Icon(
+                                    imageVector = if (showImageKeyText) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (showImageKeyText) "Hide image key" else "Show image key"
+                                )
+                            }
+                        },
+                        modifier = Modifier.weight(1f).testTag("ai_image_api_key_input")
+                    )
+                    Button(
+                        onClick = {
+                            val trimmed = draftImageApiKey.trim()
+                            onSelectImageApiKey?.invoke(trimmed)
+                            imageFeedback = if (trimmed.isEmpty()) "Custom image key cleared." else "Image API key saved."
+                        },
+                        enabled = onSelectImageApiKey != null && draftImageApiKey.trim() != imageApiKey.trim(),
+                        modifier = Modifier.testTag("apply_ai_image_api_key_button")
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = "Save image API key", modifier = Modifier.size(16.dp))
+                    }
+                }
+
+                if (imageFeedback != null) {
+                    Text(
+                        text = imageFeedback!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -379,7 +594,12 @@ fun AiModelSelectorBar(
                 if (parsed == null) {
                     false
                 } else {
-                    onSelectProvider(AiProvider.UNOROUTER)
+                    val targetProvider = if (parsed.endpointUrl?.contains("openrouter.ai", ignoreCase = true) == true) {
+                        AiProvider.OPENROUTER
+                    } else {
+                        AiProvider.UNOROUTER
+                    }
+                    onSelectProvider(targetProvider)
                     parsed.endpointUrl?.let { url ->
                         if (UnorouterClient.isValidEndpointUrl(url)) {
                             draftEndpoint = url
@@ -429,7 +649,7 @@ private fun CurlImportDialog(
                     },
                     label = { Text("cURL command") },
                     placeholder = {
-                        Text("curl https://api.unorouter.com/v1/chat/completions -H \"Authorization: Bearer sk-...\" -d '{\"model\":\"k-exaone-2.5:free\"}'")
+                        Text("curl https://openrouter.ai/api/v1/chat/completions -H \"Authorization: Bearer sk-...\" -d '{\"model\":\"...\"}'")
                     },
                     minLines = 4,
                     maxLines = 8,

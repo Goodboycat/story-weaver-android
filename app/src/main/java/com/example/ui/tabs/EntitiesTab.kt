@@ -72,6 +72,8 @@ fun EntitiesTab(
     aiChatState: AiChatUiState,
     onSelectAiProvider: (AiProvider) -> Unit,
     onSelectAiModel: (String) -> Unit,
+    onSelectAiImageModel: (String) -> Unit,
+    onGenerateAiImage: (prompt: String, maxDimension: Int, onSuccess: (String) -> Unit, onError: (String) -> Unit) -> Unit,
     onSendAiChat: (String) -> Unit,
     onSaveCharacter: (Character) -> Unit,
     onDeleteCharacters: (List<String>) -> Unit,
@@ -310,9 +312,15 @@ fun EntitiesTab(
             aiChatState = aiChatState,
             onSelectAiProvider = onSelectAiProvider,
             onSelectAiModel = onSelectAiModel,
+            onSelectAiImageModel = onSelectAiImageModel,
+            onGenerateAiImage = onGenerateAiImage,
             onSendAiChat = onSendAiChat,
             onParseEquipmentAi = onParseEquipmentAi,
             onResetAiState = onResetAiState,
+            onAutoSave = { updated ->
+                onSaveCharacter(updated)
+                editingCharacter = updated
+            },
             onSave = { updated ->
                 onSaveCharacter(updated)
                 editingCharacter = null

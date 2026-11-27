@@ -138,6 +138,18 @@ class DashboardViewModel(
         viewModelScope.launch { preferencesRepository.setAiApiKey(apiKey) }
     }
 
+    fun setAiImageEndpointUrl(url: String) {
+        viewModelScope.launch { preferencesRepository.setAiImageEndpointUrl(url) }
+    }
+
+    fun setAiImageModel(model: String) {
+        viewModelScope.launch { preferencesRepository.setAiImageModel(model) }
+    }
+
+    fun setAiImageApiKey(apiKey: String) {
+        viewModelScope.launch { preferencesRepository.setAiImageApiKey(apiKey) }
+    }
+
     private companion object {
         const val TAG = "DashboardVM"
     }

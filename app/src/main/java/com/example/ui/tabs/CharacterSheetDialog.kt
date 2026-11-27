@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material3.AlertDialog
@@ -79,12 +81,23 @@ import com.example.data.JsonCodecs
 import com.example.data.MissionEntry
 import com.example.data.PowerEntry
 import com.example.data.UserSettings
+import com.example.ui.components.AiImageGenerateDialog
 import com.example.ui.components.AiImportDialog
+import com.example.ui.components.AllEmojiPickerDialog
 import com.example.ui.components.IdeaGuideDialog
 import com.example.ui.components.ImagePickerUtil
 import com.example.viewmodel.AiUiState
 import kotlinx.coroutines.launch
 import java.util.UUID
+
+private sealed interface EmojiTarget {
+    data object CharacterAvatar : EmojiTarget
+    data class InventoryDraft(val onPicked: (String) -> Unit) : EmojiTarget
+    data class InventoryExisting(val itemId: String) : EmojiTarget
+    data class PowerDraft(val onPicked: (String) -> Unit) : EmojiTarget
+    data class PowerExisting(val powerId: String) : EmojiTarget
+    data class EquipmentSlotBadge(val onPicked: (String) -> Unit) : EmojiTarget
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -96,9 +109,12 @@ fun CharacterSheetDialog(
     aiChatState: AiChatUiState,
     onSelectAiProvider: (AiProvider) -> Unit,
     onSelectAiModel: (String) -> Unit,
+    onSelectAiImageModel: (String) -> Unit,
+    onGenerateAiImage: (prompt: String, maxDimension: Int, onSuccess: (String) -> Unit, onError: (String) -> Unit) -> Unit,
     onSendAiChat: (String) -> Unit,
     onParseEquipmentAi: (rawText: String, onParsed: (Map<String, EquipmentSlotItem>) -> Unit) -> Unit,
     onResetAiState: () -> Unit,
+    onAutoSave: ((Character) -> Unit)? = null,
     onSave: (Character) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -127,13 +143,15 @@ fun CharacterSheetDialog(
     var selectedSlot by remember { mutableStateOf<EquipmentSlot?>(null) }
     var showEquipmentAi by remember { mutableStateOf(false) }
     var showEquipmentGuide by remember { mutableStateOf(false) }
+    var emojiTarget by remember { mutableStateOf<EmojiTarget?>(null) }
+    var showCharImageGen by remember { mutableStateOf(false) }
 
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                val b64 = ImagePickerUtil.uriToResizedBase64DataUrl(context, uri, maxDimension = 360)
+                val b64 = ImagePickerUtil.uriToResizedBase64DataUrl(context, uri, maxDimension = 320)
                 if (b64 != null) avatarUrl = b64
             }
         }
@@ -268,17 +286,30 @@ fun CharacterSheetDialog(
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     if (canEdit) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                avatarPicker.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                )
-                                            },
-                                            modifier = Modifier.testTag("pick_avatar_image_button")
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(Modifier.width(6.dp))
-                                            Text("Upload Avatar")
+                                            OutlinedButton(
+                                                onClick = {
+                                                    avatarPicker.launch(
+                                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                    )
+                                                },
+                                                modifier = Modifier.testTag("pick_avatar_image_button")
+                                            ) {
+                                                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("Upload")
+                                            }
+                                            OutlinedButton(
+                                                onClick = { showCharImageGen = true },
+                                                modifier = Modifier.testTag("generate_char_avatar_button")
+                                            ) {
+                                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("AI Image")
+                                            }
                                         }
                                         if (avatarUrl != null) {
                                             TextButton(onClick = { avatarUrl = null }) { Text("Use Emoji Instead") }
@@ -293,14 +324,29 @@ fun CharacterSheetDialog(
                             }
 
                             if (canEdit) {
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
                                     listOf("🛡️", "⚔️", "🧙", "🏹", "🗡️", "🔮", "👹", "🐉", "💀", "👑").forEach { em ->
                                         FilterChip(
                                             selected = avatarEmoji == em && avatarUrl == null,
-                                            onClick = { avatarEmoji = em },
+                                            onClick = {
+                                                avatarEmoji = em
+                                                avatarUrl = null
+                                            },
                                             label = { Text(em) }
                                         )
                                     }
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = { emojiTarget = EmojiTarget.CharacterAvatar },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.EmojiEmotions, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        },
+                                        label = { Text("All Emojis...") },
+                                        modifier = Modifier.testTag("open_all_emojis_char_button")
+                                    )
                                 }
                             }
 
@@ -375,12 +421,21 @@ fun CharacterSheetDialog(
                             // Inventory Sub-Tab
                             var newItemName by remember { mutableStateOf("") }
                             var newItemQty by remember { mutableStateOf("1") }
+                            var newItemEmoji by remember { mutableStateOf("🎒") }
                             if (canEdit) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = {
+                                            emojiTarget = EmojiTarget.InventoryDraft { picked -> newItemEmoji = picked }
+                                        },
+                                        label = { Text(newItemEmoji) },
+                                        modifier = Modifier.testTag("pick_inventory_draft_emoji_button")
+                                    )
                                     OutlinedTextField(
                                         value = newItemName,
                                         onValueChange = { newItemName = it },
@@ -393,7 +448,7 @@ fun CharacterSheetDialog(
                                         onValueChange = { newItemQty = it.filter { c -> c.isDigit() } },
                                         label = { Text("Qty") },
                                         singleLine = true,
-                                        modifier = Modifier.width(68.dp)
+                                        modifier = Modifier.width(64.dp)
                                     )
                                     Button(
                                         onClick = {
@@ -401,10 +456,12 @@ fun CharacterSheetDialog(
                                                 inventory = inventory + InventoryEntry(
                                                     id = UUID.randomUUID().toString().take(8),
                                                     name = newItemName.trim(),
-                                                    quantity = newItemQty.toIntOrNull() ?: 1
+                                                    quantity = newItemQty.toIntOrNull() ?: 1,
+                                                    emoji = newItemEmoji
                                                 )
                                                 newItemName = ""
                                                 newItemQty = "1"
+                                                newItemEmoji = "🎒"
                                             }
                                         },
                                         modifier = Modifier.testTag("char_add_item_button")
@@ -424,9 +481,17 @@ fun CharacterSheetDialog(
                                     Row(
                                         modifier = Modifier.padding(12.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Text("${item.emoji} ${item.name} ×${item.quantity}", modifier = Modifier.weight(1f))
+                                        FilterChip(
+                                            selected = false,
+                                            enabled = canEdit,
+                                            onClick = {
+                                                if (canEdit) emojiTarget = EmojiTarget.InventoryExisting(item.id)
+                                            },
+                                            label = { Text(item.emoji) }
+                                        )
+                                        Text("${item.name} ×${item.quantity}", modifier = Modifier.weight(1f))
                                         if (canEdit) {
                                             IconButton(onClick = {
                                                 inventory = inventory.filterNot { it.id == item.id }
@@ -508,14 +573,29 @@ fun CharacterSheetDialog(
                             var pName by remember { mutableStateOf("") }
                             var pCost by remember { mutableStateOf("") }
                             var pDesc by remember { mutableStateOf("") }
+                            var pEmoji by remember { mutableStateOf("✨") }
                             if (canEdit) {
-                                OutlinedTextField(
-                                    value = pName,
-                                    onValueChange = { pName = it },
-                                    label = { Text("Ability / Spell Name") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = {
+                                            emojiTarget = EmojiTarget.PowerDraft { picked -> pEmoji = picked }
+                                        },
+                                        label = { Text(pEmoji) },
+                                        modifier = Modifier.testTag("pick_power_draft_emoji_button")
+                                    )
+                                    OutlinedTextField(
+                                        value = pName,
+                                        onValueChange = { pName = it },
+                                        label = { Text("Ability / Spell Name") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedTextField(
                                         value = pCost,
@@ -531,9 +611,10 @@ fun CharacterSheetDialog(
                                                     id = UUID.randomUUID().toString().take(8),
                                                     name = pName.trim(),
                                                     cost = pCost.trim(),
-                                                    description = pDesc.trim()
+                                                    description = pDesc.trim(),
+                                                    emoji = pEmoji
                                                 )
-                                                pName = ""; pCost = ""; pDesc = ""
+                                                pName = ""; pCost = ""; pDesc = ""; pEmoji = "✨"
                                             }
                                         },
                                         modifier = Modifier.align(Alignment.CenterVertically)
@@ -557,10 +638,19 @@ fun CharacterSheetDialog(
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.Top
+                                        verticalAlignment = Alignment.Top,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
+                                        FilterChip(
+                                            selected = false,
+                                            enabled = canEdit,
+                                            onClick = {
+                                                if (canEdit) emojiTarget = EmojiTarget.PowerExisting(p.id)
+                                            },
+                                            label = { Text(p.emoji) }
+                                        )
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text("${p.emoji} ${p.name}" + if (p.cost.isNotBlank()) " (${p.cost})" else "", style = MaterialTheme.typography.titleMedium)
+                                            Text("${p.name}" + if (p.cost.isNotBlank()) " (${p.cost})" else "", style = MaterialTheme.typography.titleMedium)
                                             if (p.description.isNotBlank()) {
                                                 Text(p.description, style = MaterialTheme.typography.bodySmall)
                                             }
@@ -673,19 +763,120 @@ fun CharacterSheetDialog(
         var itemName by remember(slot) { mutableStateOf(current.name) }
         var itemBonus by remember(slot) { mutableStateOf(current.bonus) }
         var itemNotes by remember(slot) { mutableStateOf(current.notes) }
+        var itemEmoji by remember(slot) { mutableStateOf(current.emoji.ifBlank { slot.emoji }) }
+        var itemImageUrl by remember(slot) { mutableStateOf(current.imageUrl) }
+        var showSlotImageGen by remember(slot) { mutableStateOf(false) }
+
+        val slotImagePicker = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.PickVisualMedia()
+        ) { uri ->
+            if (uri != null) {
+                scope.launch {
+                    val b64 = ImagePickerUtil.uriToResizedBase64DataUrl(context, uri, maxDimension = 180, quality = 72)
+                    if (b64 != null) {
+                        itemImageUrl = b64
+                        val nextItem = EquipmentSlotItem(
+                            name = itemName.trim().ifBlank { slot.label },
+                            bonus = itemBonus.trim(),
+                            notes = itemNotes.trim(),
+                            emoji = itemEmoji,
+                            imageUrl = b64,
+                        )
+                        equipment = equipment.toMutableMap().apply { put(slot.key, nextItem) }
+                        if (initialCharacter.id.isNotBlank()) {
+                            onAutoSave?.invoke(buildUpdatedCharacter())
+                        }
+                    }
+                }
+            }
+        }
+
+        val slotBitmap = remember(itemImageUrl) { ImagePickerUtil.decodeDataUrlBitmap(itemImageUrl) }
 
         AlertDialog(
             onDismissRequest = { selectedSlot = null },
-            title = { Text("${slot.emoji} ${slot.label}") },
+            title = { Text("${itemEmoji.ifBlank { slot.emoji }} ${slot.label}") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp))
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (slotBitmap != null) {
+                                    Image(
+                                        bitmap = slotBitmap.asImageBitmap(),
+                                        contentDescription = itemName.ifBlank { slot.label },
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Text(itemEmoji.ifBlank { slot.emoji }, style = MaterialTheme.typography.headlineMedium)
+                                }
+                            }
+                        }
+
+                        if (canEdit) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { showSlotImageGen = true },
+                                    modifier = Modifier.testTag("generate_equipment_image_button")
+                                ) {
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("AI Image")
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        slotImagePicker.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("upload_equipment_image_button")
+                                ) {
+                                    Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Upload")
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        emojiTarget = EmojiTarget.EquipmentSlotBadge { picked ->
+                                            itemEmoji = picked
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("open_all_emojis_equipment_button")
+                                ) {
+                                    Icon(Icons.Default.EmojiEmotions, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("All Emojis")
+                                }
+                            }
+                        }
+                    }
+
+                    if (canEdit && itemImageUrl != null) {
+                        TextButton(onClick = { itemImageUrl = null }) {
+                            Text("Remove Slot Image")
+                        }
+                    }
+
                     OutlinedTextField(
                         value = itemName,
                         onValueChange = { if (canEdit) itemName = it },
                         readOnly = !canEdit,
                         label = { Text("Equipped Item") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("equipment_item_name_input")
                     )
                     OutlinedTextField(
                         value = itemBonus,
@@ -707,16 +898,34 @@ fun CharacterSheetDialog(
             },
             confirmButton = {
                 if (canEdit) {
-                    Button(onClick = {
-                        equipment = equipment.toMutableMap().apply {
-                            if (itemName.isBlank() && itemBonus.isBlank() && itemNotes.isBlank()) {
-                                remove(slot.key)
-                            } else {
-                                put(slot.key, EquipmentSlotItem(itemName.trim(), itemBonus.trim(), itemNotes.trim()))
+                    Button(
+                        onClick = {
+                            equipment = equipment.toMutableMap().apply {
+                                if (
+                                    itemName.isBlank() &&
+                                    itemBonus.isBlank() &&
+                                    itemNotes.isBlank() &&
+                                    itemImageUrl.isNullOrBlank() &&
+                                    itemEmoji == slot.emoji
+                                ) {
+                                    remove(slot.key)
+                                } else {
+                                    put(
+                                        slot.key,
+                                        EquipmentSlotItem(
+                                            name = itemName.trim(),
+                                            bonus = itemBonus.trim(),
+                                            notes = itemNotes.trim(),
+                                            emoji = itemEmoji,
+                                            imageUrl = itemImageUrl,
+                                        )
+                                    )
+                                }
                             }
-                        }
-                        selectedSlot = null
-                    }) { Text("Apply") }
+                            selectedSlot = null
+                        },
+                        modifier = Modifier.testTag("apply_equipment_slot_button")
+                    ) { Text("Apply") }
                 } else {
                     TextButton(onClick = { selectedSlot = null }) { Text("Close") }
                 }
@@ -726,6 +935,101 @@ fun CharacterSheetDialog(
                     TextButton(onClick = { selectedSlot = null }) { Text("Cancel") }
                 }
             }
+        )
+
+        if (showSlotImageGen) {
+            val defaultEquipPrompt = buildString {
+                append("Detailed dark fantasy RPG equipment icon illustration for ${slot.label}: ")
+                append(itemName.trim().ifBlank { slot.label })
+                if (itemBonus.isNotBlank()) append(" (${itemBonus.trim()})")
+                if (itemNotes.isNotBlank()) append(". ${itemNotes.trim().take(160)}")
+                append(". Centered item artwork, no text, rich fantasy lighting.")
+            }
+            AiImageGenerateDialog(
+                title = "Generate ${slot.label} Artwork",
+                defaultPrompt = defaultEquipPrompt,
+                userSettings = userSettings,
+                onSelectImageModel = onSelectAiImageModel,
+                onGenerate = { prompt, onOk, onErr ->
+                    onGenerateAiImage(prompt, 180, onOk, onErr)
+                },
+                onImageGenerated = { dataUrl ->
+                    itemImageUrl = dataUrl
+                    val effectiveName = itemName.trim().ifBlank { slot.label }
+                    if (itemName.isBlank()) itemName = effectiveName
+                    equipment = equipment.toMutableMap().apply {
+                        put(
+                            slot.key,
+                            EquipmentSlotItem(
+                                name = effectiveName,
+                                bonus = itemBonus.trim(),
+                                notes = itemNotes.trim(),
+                                emoji = itemEmoji,
+                                imageUrl = dataUrl,
+                            )
+                        )
+                    }
+                    if (initialCharacter.id.isNotBlank()) {
+                        onAutoSave?.invoke(buildUpdatedCharacter())
+                    }
+                },
+                onDismiss = { showSlotImageGen = false }
+            )
+        }
+    }
+
+    if (showCharImageGen) {
+        val defaultCharPrompt = buildString {
+            append("Fantasy tabletop RPG character portrait of ")
+            append(name.trim().ifBlank { "a heroic adventurer" })
+            if (roleTitle.isNotBlank()) append(", ${roleTitle.trim()}")
+            if (notes.isNotBlank()) append(". ${notes.trim().take(160)}")
+            append(". Detailed character art, centered portrait, dramatic fantasy lighting, no text.")
+        }
+        AiImageGenerateDialog(
+            title = "Generate Character Portrait",
+            defaultPrompt = defaultCharPrompt,
+            userSettings = userSettings,
+            onSelectImageModel = onSelectAiImageModel,
+            onGenerate = { prompt, onOk, onErr ->
+                onGenerateAiImage(prompt, 320, onOk, onErr)
+            },
+            onImageGenerated = { dataUrl ->
+                avatarUrl = dataUrl
+                if (initialCharacter.id.isNotBlank()) {
+                    onAutoSave?.invoke(buildUpdatedCharacter())
+                }
+            },
+            onDismiss = { showCharImageGen = false }
+        )
+    }
+
+    if (emojiTarget != null) {
+        val target = emojiTarget!!
+        AllEmojiPickerDialog(
+            currentEmoji = avatarEmoji,
+            onSelect = { picked ->
+                when (target) {
+                    EmojiTarget.CharacterAvatar -> {
+                        avatarEmoji = picked
+                        avatarUrl = null
+                    }
+                    is EmojiTarget.InventoryDraft -> target.onPicked(picked)
+                    is EmojiTarget.InventoryExisting -> {
+                        inventory = inventory.map {
+                            if (it.id == target.itemId) it.copy(emoji = picked) else it
+                        }
+                    }
+                    is EmojiTarget.PowerDraft -> target.onPicked(picked)
+                    is EmojiTarget.PowerExisting -> {
+                        powers = powers.map {
+                            if (it.id == target.powerId) it.copy(emoji = picked) else it
+                        }
+                    }
+                    is EmojiTarget.EquipmentSlotBadge -> target.onPicked(picked)
+                }
+            },
+            onDismiss = { emojiTarget = null }
         )
     }
 
@@ -760,7 +1064,6 @@ private fun EquipmentSilhouetteGrid(
     equipment: Map<String, EquipmentSlotItem>,
     onSlotClick: (EquipmentSlot) -> Unit,
 ) {
-    // Anatomical 12-slot body layout arranged in symmetric rows inside BoxWithConstraints
     val rows = listOf(
         listOf(EquipmentSlot.HEAD, EquipmentSlot.EYES),
         listOf(EquipmentSlot.NECK, EquipmentSlot.SHOULDERS, EquipmentSlot.BACK),
@@ -780,7 +1083,12 @@ private fun EquipmentSilhouetteGrid(
                 ) {
                     rowSlots.forEach { slot ->
                         val equipped = equipment[slot.key]
-                        val hasItem = equipped != null && equipped.name.isNotBlank()
+                        val hasItem = equipped != null && (equipped.name.isNotBlank() || !equipped.imageUrl.isNullOrBlank())
+                        val slotBmp = remember(equipped?.imageUrl) {
+                            ImagePickerUtil.decodeDataUrlBitmap(equipped?.imageUrl)
+                        }
+                        val displayEmoji = equipped?.emoji?.takeIf { it.isNotBlank() } ?: slot.emoji
+
                         Surface(
                             color = if (hasItem) MaterialTheme.colorScheme.primaryContainer
                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
@@ -799,9 +1107,20 @@ private fun EquipmentSilhouetteGrid(
                             Column(
                                 modifier = Modifier.padding(8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Text(slot.emoji, style = MaterialTheme.typography.titleMedium)
+                                if (slotBmp != null) {
+                                    Image(
+                                        bitmap = slotBmp.asImageBitmap(),
+                                        contentDescription = equipped?.name ?: slot.label,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                    )
+                                } else {
+                                    Text(displayEmoji, style = MaterialTheme.typography.titleMedium)
+                                }
                                 Text(
                                     text = slot.label,
                                     style = MaterialTheme.typography.labelSmall,
@@ -810,7 +1129,7 @@ private fun EquipmentSilhouetteGrid(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = equipped?.name ?: "Empty",
+                                    text = equipped?.name?.ifBlank { slot.label } ?: "Empty",
                                     style = MaterialTheme.typography.bodySmall,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis

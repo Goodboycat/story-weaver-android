@@ -67,6 +67,9 @@ fun SettingsSheet(
     onSelectAiModel: (String) -> Unit,
     onSelectAiEndpointUrl: (String) -> Unit,
     onSelectAiApiKey: (String) -> Unit,
+    onSelectAiImageEndpointUrl: (String) -> Unit,
+    onSelectAiImageModel: (String) -> Unit,
+    onSelectAiImageApiKey: (String) -> Unit,
     onSignOut: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -212,6 +215,12 @@ fun SettingsSheet(
                 apiKey = settings.aiApiKey,
                 onSelectEndpointUrl = onSelectAiEndpointUrl,
                 onSelectApiKey = onSelectAiApiKey,
+                imageEndpointUrl = settings.aiImageEndpointUrl,
+                imageModel = settings.aiImageModel,
+                imageApiKey = settings.aiImageApiKey,
+                onSelectImageEndpointUrl = onSelectAiImageEndpointUrl,
+                onSelectImageModel = onSelectAiImageModel,
+                onSelectImageApiKey = onSelectAiImageApiKey,
                 showAdvancedApiConfig = true,
             )
 

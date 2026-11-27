@@ -68,8 +68,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ai.AiChatMode
 import com.example.ai.AiChatUiState
 import com.example.data.AppStrings
+import com.example.data.QuickMapBlock
 import com.example.data.UserSettings
 import com.example.notifications.SessionNotificationScheduler
 import com.example.ui.components.AiChatDialog
@@ -81,6 +83,7 @@ import com.example.ui.tabs.GridMapTab
 import com.example.ui.tabs.GuideTab
 import com.example.ui.tabs.LogsTab
 import com.example.ui.tabs.WorldListTab
+import com.example.viewmodel.AiMapUiState
 import com.example.viewmodel.StoryViewModel
 import com.example.viewmodel.UiState
 
@@ -109,9 +112,11 @@ fun StoryViewScreen(
     val messagesState by viewModel.messagesState.collectAsStateWithLifecycle()
     val logsState by viewModel.logsState.collectAsStateWithLifecycle()
     val quickAssets by viewModel.quickMapAssets.collectAsStateWithLifecycle()
+    val quickBlocks by viewModel.quickMapBlocks.collectAsStateWithLifecycle()
     val userSettings by viewModel.userSettings.collectAsStateWithLifecycle()
     val viewAsPlayer by viewModel.viewAsPlayer.collectAsStateWithLifecycle()
     val aiState by viewModel.aiState.collectAsStateWithLifecycle()
+    val aiMapState by viewModel.aiMapState.collectAsStateWithLifecycle()
     val aiChatState by viewModel.aiChatState.collectAsStateWithLifecycle()
     val toastMessage by viewModel.toastMessage.collectAsStateWithLifecycle()
 
@@ -334,7 +339,9 @@ fun StoryViewScreen(
                                         messages = messages,
                                         logs = logs,
                                         quickAssets = quickAssets,
+                                        quickBlocks = quickBlocks,
                                         aiState = aiState,
+                                        aiMapState = aiMapState,
                                         userSettings = userSettings,
                                         aiChatState = aiChatState,
                                         onOpenAiChat = { showAiChat = true },
@@ -369,7 +376,9 @@ fun StoryViewScreen(
                                         messages = messages,
                                         logs = logs,
                                         quickAssets = quickAssets,
+                                        quickBlocks = quickBlocks,
                                         aiState = aiState,
+                                        aiMapState = aiMapState,
                                         userSettings = userSettings,
                                         aiChatState = aiChatState,
                                         onOpenAiChat = { showAiChat = true },
@@ -399,13 +408,18 @@ fun StoryViewScreen(
             storyTitle = story.title,
             userSettings = userSettings,
             aiChatState = aiChatState,
-            onSendMessage = { prompt -> viewModel.sendAiChatMessage(story, prompt) },
+            onSendMessage = { prompt -> viewModel.sendAiChatMessage(story, prompt, mode = AiChatMode.TEXT) },
+            onSendImagePrompt = { prompt -> viewModel.sendAiChatMessage(story, prompt, mode = AiChatMode.IMAGE) },
+            onClearError = { viewModel.clearAiChatError() },
             onClearChat = { viewModel.clearAiChat() },
             onSelectProvider = { viewModel.setAiProvider(it) },
             onSelectModel = { viewModel.setAiModel(it) },
+            onSelectEndpointUrl = { viewModel.setAiEndpointUrl(it) },
+            onSelectApiKey = { viewModel.setAiApiKey(it) },
             onPostToPartyChat = { reply ->
                 viewModel.sendChatMessage(story, "🤖 AI (${userSettings.aiModel}):\n$reply")
             },
+            onNotify = { msg -> viewModel.showToast(msg) },
             onDismiss = { showAiChat = false }
         )
     }
@@ -445,7 +459,9 @@ private fun StoryTabContent(
     messages: List<com.example.data.ChatMessage>,
     logs: List<com.example.data.ActivityLog>,
     quickAssets: List<com.example.data.QuickMapAsset>,
+    quickBlocks: List<QuickMapBlock>,
     aiState: com.example.viewmodel.AiUiState,
+    aiMapState: AiMapUiState,
     userSettings: UserSettings,
     aiChatState: AiChatUiState,
     onOpenAiChat: () -> Unit,
@@ -467,6 +483,10 @@ private fun StoryTabContent(
             aiChatState = aiChatState,
             onSelectAiProvider = { viewModel.setAiProvider(it) },
             onSelectAiModel = { viewModel.setAiModel(it) },
+            onSelectAiImageModel = { viewModel.setAiImageModel(it) },
+            onGenerateAiImage = { prompt, maxDim, onOk, onErr ->
+                viewModel.generateEntityImage(prompt, maxDim, onOk, onErr)
+            },
             onSendAiChat = { viewModel.sendAiChatMessage(story, it, "player characters") },
             onSaveCharacter = { viewModel.saveCharacter(story, it) },
             onDeleteCharacters = { viewModel.deleteCharacters(story, it) },
@@ -487,6 +507,10 @@ private fun StoryTabContent(
             aiChatState = aiChatState,
             onSelectAiProvider = { viewModel.setAiProvider(it) },
             onSelectAiModel = { viewModel.setAiModel(it) },
+            onSelectAiImageModel = { viewModel.setAiImageModel(it) },
+            onGenerateAiImage = { prompt, maxDim, onOk, onErr ->
+                viewModel.generateEntityImage(prompt, maxDim, onOk, onErr)
+            },
             onSendAiChat = { viewModel.sendAiChatMessage(story, it, "NPCs") },
             onSaveCharacter = { viewModel.saveCharacter(story, it) },
             onDeleteCharacters = { viewModel.deleteCharacters(story, it) },
@@ -507,6 +531,10 @@ private fun StoryTabContent(
             aiChatState = aiChatState,
             onSelectAiProvider = { viewModel.setAiProvider(it) },
             onSelectAiModel = { viewModel.setAiModel(it) },
+            onSelectAiImageModel = { viewModel.setAiImageModel(it) },
+            onGenerateAiImage = { prompt, maxDim, onOk, onErr ->
+                viewModel.generateEntityImage(prompt, maxDim, onOk, onErr)
+            },
             onSendAiChat = { viewModel.sendAiChatMessage(story, it, "monsters & encounters") },
             onSaveCharacter = { viewModel.saveCharacter(story, it) },
             onDeleteCharacters = { viewModel.deleteCharacters(story, it) },
@@ -520,12 +548,24 @@ private fun StoryTabContent(
             story = story,
             characters = characters,
             quickAssets = quickAssets,
+            quickBlocks = quickBlocks,
             currentUserId = viewModel.currentUserId,
             isGmMode = isGmMode,
+            userSettings = userSettings,
+            aiMapState = aiMapState,
+            onSelectAiProvider = { viewModel.setAiProvider(it) },
+            onSelectAiModel = { viewModel.setAiModel(it) },
+            onSelectAiEndpointUrl = { viewModel.setAiEndpointUrl(it) },
+            onSelectAiApiKey = { viewModel.setAiApiKey(it) },
+            onClearAiMapError = { viewModel.clearAiMapError() },
+            onGenerateAiMap = { prompt, w, h, g, t, replace, tw, th, onApplied ->
+                viewModel.generateMapWithAi(story, prompt, w, h, g, t, replace, tw, th, onApplied)
+            },
             onSyncMap = { w, h, g, t, bg, imm ->
                 viewModel.syncMapDebounced(story, w, h, g, t, bg, imm)
             },
-            onAddQuickAsset = { viewModel.addQuickMapAsset(it) }
+            onAddQuickAsset = { viewModel.addQuickMapAsset(it) },
+            onAddQuickBlock = { viewModel.addQuickMapBlock(it) },
         )
         StoryTabId.LOCATIONS -> WorldListTab(
             story = story,
@@ -538,6 +578,10 @@ private fun StoryTabContent(
             aiChatState = aiChatState,
             onSelectAiProvider = { viewModel.setAiProvider(it) },
             onSelectAiModel = { viewModel.setAiModel(it) },
+            onSelectAiImageModel = { viewModel.setAiImageModel(it) },
+            onGenerateAiImage = { prompt, maxDim, onOk, onErr ->
+                viewModel.generateEntityImage(prompt, maxDim, onOk, onErr)
+            },
             onSendAiChat = { viewModel.sendAiChatMessage(story, it, "locations") },
             onSaveItem = { viewModel.saveWorldItem(story, it) },
             onReorder = { viewModel.reorderWorldItems(story, it) },
@@ -558,6 +602,10 @@ private fun StoryTabContent(
             aiChatState = aiChatState,
             onSelectAiProvider = { viewModel.setAiProvider(it) },
             onSelectAiModel = { viewModel.setAiModel(it) },
+            onSelectAiImageModel = { viewModel.setAiImageModel(it) },
+            onGenerateAiImage = { prompt, maxDim, onOk, onErr ->
+                viewModel.generateEntityImage(prompt, maxDim, onOk, onErr)
+            },
             onSendAiChat = { viewModel.sendAiChatMessage(story, it, "powers & spells") },
             onSaveItem = { viewModel.saveWorldItem(story, it) },
             onReorder = { viewModel.reorderWorldItems(story, it) },
@@ -578,6 +626,10 @@ private fun StoryTabContent(
             aiChatState = aiChatState,
             onSelectAiProvider = { viewModel.setAiProvider(it) },
             onSelectAiModel = { viewModel.setAiModel(it) },
+            onSelectAiImageModel = { viewModel.setAiImageModel(it) },
+            onGenerateAiImage = { prompt, maxDim, onOk, onErr ->
+                viewModel.generateEntityImage(prompt, maxDim, onOk, onErr)
+            },
             onSendAiChat = { viewModel.sendAiChatMessage(story, it, "campaign notes") },
             onSaveItem = { viewModel.saveWorldItem(story, it) },
             onReorder = { viewModel.reorderWorldItems(story, it) },

@@ -94,6 +94,7 @@ data class WorldItem(
     val description: String = "",
     val iconName: String = "Place",
     val iconEmoji: String = "🏰",
+    val imageUrl: String? = null,
     val sortOrder: Long = 0L,
     val tagsJson: String = "[]",
     @ServerTimestamp val createdAt: Timestamp? = null,
@@ -206,12 +207,33 @@ data class EquipmentSlotItem(
     val name: String = "",
     val bonus: String = "",
     val notes: String = "",
+    val emoji: String = "",
+    val imageUrl: String? = null,
 )
 
 data class QuickMapAsset(
     val id: String,
     val label: String,
     val imageBase64: String,
+)
+
+data class QuickMapBlock(
+    val id: String,
+    val label: String = "",
+    val colorHex: String? = null,
+    val emoji: String? = null,
+    val imageBase64: String? = null,
+)
+
+data class MapBackgroundLayer(
+    val id: String,
+    val label: String = "Map Layer",
+    val imageBase64: String,
+    val gridX: Float = 0f,
+    val gridY: Float = 0f,
+    val widthCells: Float = 12f,
+    val heightCells: Float = 12f,
+    val opacity: Float = 1f,
 )
 
 data class ScheduledSessionRecord(
@@ -442,6 +464,8 @@ object JsonCodecs {
                     name = slotObj.optString("name", ""),
                     bonus = slotObj.optString("bonus", ""),
                     notes = slotObj.optString("notes", ""),
+                    emoji = slotObj.optString("emoji", ""),
+                    imageUrl = slotObj.optString("imageUrl").takeIf { it.isNotBlank() },
                 )
             }
             result
@@ -453,11 +477,19 @@ object JsonCodecs {
     fun encodeEquipment(map: Map<String, EquipmentSlotItem>): String {
         val root = JSONObject()
         map.forEach { (slot, item) ->
-            if (item.name.isNotBlank() || item.bonus.isNotBlank() || item.notes.isNotBlank()) {
+            if (
+                item.name.isNotBlank() ||
+                item.bonus.isNotBlank() ||
+                item.notes.isNotBlank() ||
+                item.emoji.isNotBlank() ||
+                !item.imageUrl.isNullOrBlank()
+            ) {
                 root.put(slot, JSONObject().apply {
                     put("name", item.name)
                     put("bonus", item.bonus)
                     put("notes", item.notes)
+                    if (item.emoji.isNotBlank()) put("emoji", item.emoji)
+                    if (!item.imageUrl.isNullOrBlank()) put("imageUrl", item.imageUrl)
                 })
             }
         }
@@ -519,6 +551,103 @@ object JsonCodecs {
                 put("id", item.id)
                 put("label", item.label)
                 put("imageBase64", item.imageBase64)
+            })
+        }
+        return arr.toString()
+    }
+
+    fun decodeQuickBlocks(json: String): List<QuickMapBlock> {
+        if (json.isBlank() || json == "[]") return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val color = o.optString("colorHex").takeIf { it.isNotBlank() }
+                val emoji = o.optString("emoji").takeIf { it.isNotBlank() }
+                val img = o.optString("imageBase64").takeIf { it.isNotBlank() }
+                if (color == null && emoji == null && img == null) null
+                else QuickMapBlock(
+                    id = o.optString("id", "qb_$i"),
+                    label = o.optString("label", ""),
+                    colorHex = color,
+                    emoji = emoji,
+                    imageBase64 = img,
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun encodeQuickBlocks(items: List<QuickMapBlock>): String {
+        val arr = JSONArray()
+        items.forEach { item ->
+            arr.put(JSONObject().apply {
+                put("id", item.id)
+                put("label", item.label)
+                item.colorHex?.let { put("colorHex", it) }
+                item.emoji?.let { put("emoji", it) }
+                item.imageBase64?.let { put("imageBase64", it) }
+            })
+        }
+        return arr.toString()
+    }
+
+    fun decodeMapBackgroundLayers(
+        raw: String?,
+        fallbackWidth: Int = 12,
+        fallbackHeight: Int = 12,
+    ): List<MapBackgroundLayer> {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isEmpty()) return emptyList()
+        if (!trimmed.startsWith("[")) {
+            return listOf(
+                MapBackgroundLayer(
+                    id = "bg_legacy",
+                    label = "Map Background",
+                    imageBase64 = trimmed,
+                    gridX = 0f,
+                    gridY = 0f,
+                    widthCells = fallbackWidth.toFloat().coerceAtLeast(1f),
+                    heightCells = fallbackHeight.toFloat().coerceAtLeast(1f),
+                    opacity = 1f,
+                )
+            )
+        }
+        return try {
+            val arr = JSONArray(trimmed)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val img = o.optString("imageBase64").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                MapBackgroundLayer(
+                    id = o.optString("id", "bg_$i"),
+                    label = o.optString("label", "Map ${i + 1}"),
+                    imageBase64 = img,
+                    gridX = o.optDouble("gridX", 0.0).toFloat(),
+                    gridY = o.optDouble("gridY", 0.0).toFloat(),
+                    widthCells = o.optDouble("widthCells", fallbackWidth.toDouble()).toFloat().coerceAtLeast(1f),
+                    heightCells = o.optDouble("heightCells", fallbackHeight.toDouble()).toFloat().coerceAtLeast(1f),
+                    opacity = o.optDouble("opacity", 1.0).toFloat().coerceIn(0.15f, 1f),
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun encodeMapBackgroundLayers(layers: List<MapBackgroundLayer>): String? {
+        if (layers.isEmpty()) return null
+        val arr = JSONArray()
+        layers.forEach { layer ->
+            arr.put(JSONObject().apply {
+                put("id", layer.id)
+                put("label", layer.label)
+                put("imageBase64", layer.imageBase64)
+                put("gridX", layer.gridX.toDouble())
+                put("gridY", layer.gridY.toDouble())
+                put("widthCells", layer.widthCells.toDouble())
+                put("heightCells", layer.heightCells.toDouble())
+                put("opacity", layer.opacity.toDouble())
             })
         }
         return arr.toString()

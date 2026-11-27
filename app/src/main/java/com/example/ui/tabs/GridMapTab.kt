@@ -8,6 +8,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
@@ -16,12 +17,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,20 +28,28 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.FormatColorFill
-import androidx.compose.material.icons.filled.GridOn
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PersonPinCircle
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -61,6 +68,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
@@ -74,16 +82,26 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.ai.AiProvider
 import com.example.data.Character
 import com.example.data.GridCell
 import com.example.data.JsonCodecs
+import com.example.data.MapBackgroundLayer
+import com.example.data.MapColorPalette
+import com.example.data.MapPaintOutcome
 import com.example.data.MapToken
 import com.example.data.QuickMapAsset
+import com.example.data.QuickMapBlock
 import com.example.data.Story
+import com.example.data.UserSettings
+import com.example.ui.components.AllEmojiPickerDialog
 import com.example.ui.components.IdeaGuideDialog
 import com.example.ui.components.ImagePickerUtil
+import com.example.viewmodel.AiMapUiState
 import kotlinx.coroutines.launch
 import java.util.ArrayDeque
 import java.util.UUID
@@ -98,7 +116,19 @@ enum class MapTool {
     FLOOD_FILL,
     RECT_FILL,
     MOVE_TOKEN,
+    ARRANGE_IMAGES,
 }
+
+private data class AiMapUndoSnapshot(
+    val width: Int,
+    val height: Int,
+    val grid: Map<String, GridCell>,
+    val tokens: List<MapToken>,
+    val summary: String,
+    val scriptJson: String,
+)
+
+private val QUICK_MAP_EMOJIS = listOf("🌲", "⛰️", "🌊", "🔥", "🧱", "🚪", "💎", "☠️", "🕳️", "🏰")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -106,10 +136,30 @@ fun GridMapTab(
     story: Story,
     characters: List<Character>,
     quickAssets: List<QuickMapAsset>,
+    quickBlocks: List<QuickMapBlock>,
     currentUserId: String,
     isGmMode: Boolean,
+    userSettings: UserSettings,
+    aiMapState: AiMapUiState,
+    onSelectAiProvider: (AiProvider) -> Unit,
+    onSelectAiModel: (String) -> Unit,
+    onSelectAiEndpointUrl: (String) -> Unit,
+    onSelectAiApiKey: (String) -> Unit,
+    onClearAiMapError: () -> Unit,
+    onGenerateAiMap: (
+        prompt: String,
+        currentWidth: Int,
+        currentHeight: Int,
+        currentGrid: Map<String, GridCell>,
+        currentTokens: List<MapToken>,
+        replaceEntireMap: Boolean,
+        targetWidth: Int?,
+        targetHeight: Int?,
+        onApplied: (MapPaintOutcome) -> Unit,
+    ) -> Unit,
     onSyncMap: (width: Int, height: Int, grid: Map<String, GridCell>, tokens: List<MapToken>, backgroundUrl: String?, immediate: Boolean) -> Unit,
     onAddQuickAsset: (QuickMapAsset) -> Unit,
+    onAddQuickBlock: (QuickMapBlock) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -118,7 +168,15 @@ fun GridMapTab(
     var height by remember(story.id, story.mapHeight) { mutableIntStateOf(story.mapHeight.toInt().coerceIn(4, 30)) }
     var grid by remember(story.id, story.mapGridJson) { mutableStateOf(JsonCodecs.decodeGrid(story.mapGridJson)) }
     var tokens by remember(story.id, story.mapTokensJson) { mutableStateOf(JsonCodecs.decodeTokens(story.mapTokensJson)) }
-    var backgroundUrl by remember(story.id, story.mapBackgroundUrl) { mutableStateOf(story.mapBackgroundUrl) }
+    var bgLayers by remember(story.id, story.mapBackgroundUrl) {
+        mutableStateOf(
+            JsonCodecs.decodeMapBackgroundLayers(
+                story.mapBackgroundUrl,
+                story.mapWidth.toInt().coerceIn(4, 30),
+                story.mapHeight.toInt().coerceIn(4, 30)
+            )
+        )
+    }
 
     var activeTool by remember(isGmMode) {
         mutableStateOf(if (isGmMode) MapTool.PAN_ZOOM else MapTool.MOVE_TOKEN)
@@ -129,13 +187,19 @@ fun GridMapTab(
     var selectedAssetBase64 by remember { mutableStateOf<String?>(null) }
     var rectStart by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var selectedTokenId by remember { mutableStateOf<String?>(null) }
+    var selectedBgLayerId by remember { mutableStateOf<String?>(null) }
 
     var scale by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
 
-    var showResizeDialog by remember { mutableStateOf(false) }
+    var showMapSettingsDialog by remember { mutableStateOf(false) }
+    var showAiMapDialog by remember { mutableStateOf(false) }
+    var showAiCodeDialog by remember { mutableStateOf(false) }
+    var showColorPaletteDialog by remember { mutableStateOf(false) }
+    var aiUndoSnapshot by remember { mutableStateOf<AiMapUndoSnapshot?>(null) }
     var showTokenPicker by remember { mutableStateOf(false) }
     var showGuide by remember { mutableStateOf(false) }
+    var showMapEmojiPicker by remember { mutableStateOf(false) }
 
     val tileAssetPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -152,26 +216,13 @@ fun GridMapTab(
                     onAddQuickAsset(asset)
                     selectedAssetBase64 = b64
                     selectedEmoji = null
-                    selectedColorHex = null
                     activeTool = MapTool.BRUSH
                 }
             }
         }
     }
 
-    val bgPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                val b64 = ImagePickerUtil.uriToResizedBase64DataUrl(context, uri, maxDimension = 520, quality = 72)
-                if (b64 != null) {
-                    backgroundUrl = b64
-                    onSyncMap(width, height, grid, tokens, b64, true)
-                }
-            }
-        }
-    }
+    fun encodedBackground(): String? = JsonCodecs.encodeMapBackgroundLayers(bgLayers)
 
     fun currentBrushCell(): GridCell = GridCell(
         colorHex = selectedColorHex,
@@ -179,29 +230,52 @@ fun GridMapTab(
         imageBase64 = selectedAssetBase64,
     )
 
+    fun saveCurrentComboToQuickInventory() {
+        if (selectedColorHex == null && selectedEmoji == null && selectedAssetBase64 == null) return
+        onAddQuickBlock(
+            QuickMapBlock(
+                id = "qb_${UUID.randomUUID().toString().take(8)}",
+                label = selectedEmoji ?: selectedColorHex.orEmpty(),
+                colorHex = selectedColorHex,
+                emoji = selectedEmoji,
+                imageBase64 = selectedAssetBase64,
+            )
+        )
+    }
+
     fun cellKey(x: Int, y: Int) = "$x,$y"
 
-    fun applyPaint(cx: Int, cy: Int) {
+    fun applyPaint(cx: Int, cy: Int, recordQuickBlock: Boolean = true) {
         val next = grid.toMutableMap()
         val half = brushSize / 2
         val startX = cx - half
         val startY = cy - half
         val endX = startX + brushSize - 1
         val endY = startY + brushSize - 1
+        val brushCell = currentBrushCell()
+        var changed = false
         for (px in startX..endX) {
             for (py in startY..endY) {
                 if (px in 0 until width && py in 0 until height) {
                     val key = cellKey(px, py)
                     if (activeTool == MapTool.ERASER) {
-                        next.remove(key)
+                        if (next.remove(key) != null) changed = true
                     } else {
-                        next[key] = currentBrushCell()
+                        if (next[key] != brushCell) {
+                            next[key] = brushCell
+                            changed = true
+                        }
                     }
                 }
             }
         }
-        grid = next
-        onSyncMap(width, height, next, tokens, backgroundUrl, false)
+        if (changed) {
+            if (activeTool != MapTool.ERASER && recordQuickBlock) {
+                saveCurrentComboToQuickInventory()
+            }
+            grid = next
+            onSyncMap(width, height, next, tokens, encodedBackground(), false)
+        }
     }
 
     fun applyFloodFill(sx: Int, sy: Int) {
@@ -209,6 +283,7 @@ fun GridMapTab(
         val targetCell = grid[startKey]
         val replacement = currentBrushCell()
         if (targetCell == replacement) return
+        saveCurrentComboToQuickInventory()
         val next = grid.toMutableMap()
         val queue = ArrayDeque<Pair<Int, Int>>()
         val visited = HashSet<String>()
@@ -226,10 +301,11 @@ fun GridMapTab(
             queue.add(x to y - 1)
         }
         grid = next
-        onSyncMap(width, height, next, tokens, backgroundUrl, false)
+        onSyncMap(width, height, next, tokens, encodedBackground(), false)
     }
 
     fun applyRectFill(a: Pair<Int, Int>, b: Pair<Int, Int>) {
+        saveCurrentComboToQuickInventory()
         val next = grid.toMutableMap()
         val minX = min(a.first, b.first).coerceIn(0, width - 1)
         val maxX = max(a.first, b.first).coerceIn(0, width - 1)
@@ -242,10 +318,18 @@ fun GridMapTab(
             }
         }
         grid = next
-        onSyncMap(width, height, next, tokens, backgroundUrl, false)
+        onSyncMap(width, height, next, tokens, encodedBackground(), false)
     }
 
-    fun handleGridTap(gx: Int, gy: Int) {
+    fun handleGridTap(gx: Int, gy: Int, localCellFloatX: Float = gx.toFloat(), localCellFloatY: Float = gy.toFloat()) {
+        if (activeTool == MapTool.ARRANGE_IMAGES && isGmMode) {
+            val hit = bgLayers.lastOrNull { layer ->
+                localCellFloatX in layer.gridX..(layer.gridX + layer.widthCells) &&
+                    localCellFloatY in layer.gridY..(layer.gridY + layer.heightCells)
+            }
+            selectedBgLayerId = hit?.id
+            return
+        }
         if (gx !in 0 until width || gy !in 0 until height) return
         when (activeTool) {
             MapTool.BRUSH, MapTool.ERASER -> if (isGmMode) applyPaint(gx, gy)
@@ -272,7 +356,7 @@ fun GridMapTab(
                     }
                     tokens = updated
                     selectedTokenId = null
-                    onSyncMap(width, height, grid, updated, backgroundUrl, true)
+                    onSyncMap(width, height, grid, updated, encodedBackground(), true)
                 }
             }
             MapTool.PAN_ZOOM -> {
@@ -282,6 +366,7 @@ fun GridMapTab(
                     activeTool = MapTool.MOVE_TOKEN
                 }
             }
+            MapTool.ARRANGE_IMAGES -> Unit
         }
     }
 
@@ -291,7 +376,7 @@ fun GridMapTab(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -338,21 +423,41 @@ fun GridMapTab(
                     label = { Text(if (rectStart == null) "Rect" else "Tap End") },
                     modifier = Modifier.testTag("map_tool_rect")
                 )
-                IconButton(onClick = { showResizeDialog = true }, modifier = Modifier.testTag("map_resize_button")) {
-                    Icon(Icons.Default.GridOn, contentDescription = "Resize Grid")
+                if (bgLayers.isNotEmpty()) {
+                    FilterChip(
+                        selected = activeTool == MapTool.ARRANGE_IMAGES,
+                        onClick = {
+                            activeTool = MapTool.ARRANGE_IMAGES
+                            if (selectedBgLayerId == null) selectedBgLayerId = bgLayers.lastOrNull()?.id
+                        },
+                        leadingIcon = { Icon(Icons.Default.Layers, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        label = { Text("Move Map Img") },
+                        modifier = Modifier.testTag("map_tool_arrange_images")
+                    )
                 }
-                IconButton(
+                Button(
                     onClick = {
-                        bgPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        onClearAiMapError()
+                        showAiMapDialog = true
                     },
-                    modifier = Modifier.testTag("map_background_picker_button")
+                    modifier = Modifier.testTag("map_ai_architect_button")
                 ) {
-                    Icon(Icons.Default.Image, contentDescription = "Map Background")
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("AI Map")
+                }
+                OutlinedButton(
+                    onClick = { showMapSettingsDialog = true },
+                    modifier = Modifier.testTag("map_settings_button")
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Map (${width}x$height)")
                 }
                 IconButton(
                     onClick = {
                         grid = emptyMap()
-                        onSyncMap(width, height, emptyMap(), tokens, backgroundUrl, true)
+                        onSyncMap(width, height, emptyMap(), tokens, encodedBackground(), true)
                     },
                     modifier = Modifier.testTag("map_clear_button")
                 ) {
@@ -370,89 +475,265 @@ fun GridMapTab(
             }
         }
 
-        // GM Tile Palette + Brush Size + Quick Asset Bar
+        // GM Composite Block Painter Bar: Block Color (Bg) + Emoji/Image (Fg)
         if (isGmMode && (activeTool == MapTool.BRUSH || activeTool == MapTool.FLOOD_FILL || activeTool == MapTool.RECT_FILL)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                // Brush sizes
-                listOf(1, 2, 3).forEach { sz ->
-                    FilterChip(
-                        selected = brushSize == sz,
-                        onClick = { brushSize = sz },
-                        label = { Text("${sz}x$sz") }
-                    )
-                }
-                // Color terrain tiles
-                listOf("#334155", "#1E293B", "#14532D", "#1E3A8A", "#7C2D12", "#78350F", "#4C1D95").forEach { hex ->
-                    val color = Color(android.graphics.Color.parseColor(hex))
-                    val selected = selectedColorHex == hex && selectedEmoji == null && selectedAssetBase64 == null
-                    Box(
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Row 1: Preview + Brush Size + Background Block Color Palette
+                    Row(
                         modifier = Modifier
-                            .size(32.dp)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(color)
-                            .border(
-                                width = if (selected) 2.5.dp else 1.dp,
-                                color = if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.25f),
-                                shape = MaterialTheme.shapes.small
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Live Composite Block Preview
+                        CompositeBlockPreview(
+                            colorHex = selectedColorHex,
+                            emoji = selectedEmoji,
+                            imageBase64 = selectedAssetBase64,
+                            sizeDp = 38.dp,
+                            isSelected = true,
+                            onClick = { saveCurrentComboToQuickInventory() },
+                            modifier = Modifier.testTag("map_composite_block_preview")
+                        )
+                        OutlinedButton(
+                            onClick = { saveCurrentComboToQuickInventory() },
+                            enabled = selectedColorHex != null || selectedEmoji != null || selectedAssetBase64 != null,
+                            modifier = Modifier.testTag("map_save_quick_block_button")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Save Block", style = MaterialTheme.typography.labelSmall)
+                        }
+
+                        listOf(1, 2, 3).forEach { sz ->
+                            FilterChip(
+                                selected = brushSize == sz,
+                                onClick = { brushSize = sz },
+                                label = { Text("${sz}x$sz") }
                             )
-                            .clickable {
-                                selectedColorHex = hex
-                                selectedEmoji = null
-                                selectedAssetBase64 = null
-                            }
-                    )
-                }
-                // Terrain Emojis
-                listOf("🌲", "⛰️", "🌊", "🔥", "🧱", "🚪", "💎", "☠️", "🕳️", "🏰").forEach { em ->
-                    FilterChip(
-                        selected = selectedEmoji == em,
-                        onClick = {
-                            selectedEmoji = em
-                            selectedColorHex = null
-                            selectedAssetBase64 = null
-                        },
-                        label = { Text(em) }
-                    )
-                }
-                // Custom Image Tiles Quick Bar
-                quickAssets.forEach { asset ->
-                    val bmp = remember(asset.imageBase64) { ImagePickerUtil.decodeDataUrlBitmap(asset.imageBase64) }
-                    if (bmp != null) {
-                        val selected = selectedAssetBase64 == asset.imageBase64
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = asset.label,
-                            contentScale = ContentScale.Crop,
+                        }
+
+                        // Background Block Color "None" swatch
+                        Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(30.dp)
                                 .clip(MaterialTheme.shapes.small)
+                                .background(MaterialTheme.colorScheme.surface)
                                 .border(
-                                    width = if (selected) 2.5.dp else 1.dp,
-                                    color = if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.3f),
+                                    width = if (selectedColorHex == null) 2.5.dp else 1.dp,
+                                    color = if (selectedColorHex == null) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.3f),
                                     shape = MaterialTheme.shapes.small
                                 )
-                                .clickable {
-                                    selectedAssetBase64 = asset.imageBase64
-                                    selectedEmoji = null
-                                    selectedColorHex = null
-                                }
+                                .clickable { selectedColorHex = null }
+                                .testTag("map_bg_color_none"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Block,
+                                contentDescription = "Transparent Block Background",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        FilterChip(
+                            selected = selectedColorHex != null && MapColorPalette.hexList.none { it.equals(selectedColorHex, ignoreCase = true) },
+                            onClick = { showColorPaletteDialog = true },
+                            leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(15.dp)) },
+                            label = {
+                                Text(
+                                    text = if (selectedColorHex != null && MapColorPalette.hexList.none { it.equals(selectedColorHex, ignoreCase = true) }) {
+                                        selectedColorHex!!
+                                    } else {
+                                        "All Colors"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            },
+                            modifier = Modifier.testTag("map_open_palette_dialog_button")
                         )
+
+                        MapColorPalette.hexList.forEach { hex ->
+                            val color = Color(android.graphics.Color.parseColor(hex))
+                            val selected = selectedColorHex.equals(hex, ignoreCase = true)
+                            Box(
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .background(color)
+                                    .border(
+                                        width = if (selected) 2.5.dp else 1.dp,
+                                        color = if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.3f),
+                                        shape = MaterialTheme.shapes.small
+                                    )
+                                    .clickable { selectedColorHex = hex }
+                                    .testTag("map_bg_color_$hex")
+                            )
+                        }
+                    }
+
+                    // Row 2: Overlay Emoji OR Tile Image (rendered ABOVE selected background color)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Overlay:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FilterChip(
+                            selected = selectedEmoji == null && selectedAssetBase64 == null,
+                            onClick = {
+                                selectedEmoji = null
+                                selectedAssetBase64 = null
+                            },
+                            label = { Text("Color Only", style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.testTag("map_overlay_none")
+                        )
+                        QUICK_MAP_EMOJIS.forEach { em ->
+                            FilterChip(
+                                selected = selectedEmoji == em && selectedAssetBase64 == null,
+                                onClick = {
+                                    selectedEmoji = if (selectedEmoji == em) null else em
+                                    selectedAssetBase64 = null
+                                },
+                                label = { Text(em) }
+                            )
+                        }
+                        FilterChip(
+                            selected = selectedEmoji != null && selectedEmoji !in QUICK_MAP_EMOJIS && selectedAssetBase64 == null,
+                            onClick = { showMapEmojiPicker = true },
+                            leadingIcon = {
+                                Icon(Icons.Default.EmojiEmotions, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            label = {
+                                Text(
+                                    text = if (selectedEmoji != null && selectedAssetBase64 == null) "Emoji: $selectedEmoji" else "All Emojis",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            },
+                            modifier = Modifier.testTag("map_open_all_emojis_button")
+                        )
+                        quickAssets.forEach { asset ->
+                            val bmp = remember(asset.imageBase64) { ImagePickerUtil.decodeDataUrlBitmap(asset.imageBase64) }
+                            if (bmp != null) {
+                                val selected = selectedAssetBase64 == asset.imageBase64
+                                Image(
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = asset.label,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(MaterialTheme.shapes.small)
+                                        .border(
+                                            width = if (selected) 2.5.dp else 1.dp,
+                                            color = if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.3f),
+                                            shape = MaterialTheme.shapes.small
+                                        )
+                                        .clickable {
+                                            selectedAssetBase64 = if (selected) null else asset.imageBase64
+                                            selectedEmoji = null
+                                        }
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = {
+                                tileAssetPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            },
+                            modifier = Modifier.size(36.dp).testTag("map_upload_tile_button")
+                        ) {
+                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Upload Overlay Image", modifier = Modifier.size(20.dp))
+                        }
                     }
                 }
-                IconButton(
-                    onClick = {
-                        tileAssetPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    },
-                    modifier = Modifier.testTag("map_upload_tile_button")
+            }
+        }
+
+        if (activeTool == MapTool.ARRANGE_IMAGES && isGmMode) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Upload Tile Asset")
+                    Text(
+                        text = "Drag any uploaded map image to position it on the grid. Use Map (${width}x$height) to resize.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { showMapSettingsDialog = true }) {
+                        Text("Layout")
+                    }
+                }
+            }
+        }
+
+        if (aiUndoSnapshot != null && isGmMode) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                modifier = Modifier.fillMaxWidth().testTag("map_ai_result_banner")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = aiUndoSnapshot!!.summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = { showAiCodeDialog = true },
+                        modifier = Modifier.testTag("map_ai_view_code_button")
+                    ) {
+                        Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text("Code")
+                    }
+                    TextButton(
+                        onClick = {
+                            val snap = aiUndoSnapshot ?: return@TextButton
+                            width = snap.width
+                            height = snap.height
+                            grid = snap.grid
+                            tokens = snap.tokens
+                            aiUndoSnapshot = null
+                            onSyncMap(snap.width, snap.height, snap.grid, snap.tokens, encodedBackground(), true)
+                        },
+                        modifier = Modifier.testTag("map_ai_undo_button")
+                    ) {
+                        Icon(Icons.Default.Undo, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text("Undo")
+                    }
+                    TextButton(onClick = { aiUndoSnapshot = null }) {
+                        Text("OK")
+                    }
                 }
             }
         }
@@ -473,7 +754,7 @@ fun GridMapTab(
                             val updated = tokens.filterNot { it.id == selectedTokenId }
                             tokens = updated
                             selectedTokenId = null
-                            onSyncMap(width, height, grid, updated, backgroundUrl, true)
+                            onSyncMap(width, height, grid, updated, encodedBackground(), true)
                         }) {
                             Text("Remove Token")
                         }
@@ -494,7 +775,6 @@ fun GridMapTab(
             val baseCellPx = with(density) { 36.dp.toPx() }
             val boardWidthPx = width * baseCellPx
             val boardHeightPx = height * baseCellPx
-            val bgBitmap = remember(backgroundUrl) { ImagePickerUtil.decodeDataUrlBitmap(backgroundUrl) }
 
             Box(
                 modifier = Modifier
@@ -510,14 +790,64 @@ fun GridMapTab(
                             }
                         }
                     }
-                    .pointerInput(activeTool, width, height, grid, tokens, selectedTokenId, scale, panOffset) {
+                    .pointerInput(activeTool, isGmMode, width, height, selectedColorHex, selectedEmoji, selectedAssetBase64, brushSize, scale, panOffset, bgLayers, selectedBgLayerId) {
+                        if (isGmMode && (activeTool == MapTool.BRUSH || activeTool == MapTool.ERASER || activeTool == MapTool.ARRANGE_IMAGES)) {
+                            detectDragGestures(
+                                onDragStart = { startOffset ->
+                                    val localX = (startOffset.x - panOffset.x) / scale
+                                    val localY = (startOffset.y - panOffset.y) / scale
+                                    val cfX = localX / baseCellPx
+                                    val cfY = localY / baseCellPx
+                                    if (activeTool == MapTool.ARRANGE_IMAGES) {
+                                        val hit = bgLayers.lastOrNull { layer ->
+                                            cfX in layer.gridX..(layer.gridX + layer.widthCells) &&
+                                                cfY in layer.gridY..(layer.gridY + layer.heightCells)
+                                        }
+                                        if (hit != null) selectedBgLayerId = hit.id
+                                    } else if (localX >= 0f && localY >= 0f) {
+                                        applyPaint(cfX.toInt(), cfY.toInt(), recordQuickBlock = true)
+                                    }
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    if (activeTool == MapTool.ARRANGE_IMAGES) {
+                                        val activeId = selectedBgLayerId ?: bgLayers.lastOrNull()?.id
+                                        if (activeId != null) {
+                                            val dxCells = dragAmount.x / (baseCellPx * scale)
+                                            val dyCells = dragAmount.y / (baseCellPx * scale)
+                                            bgLayers = bgLayers.map { layer ->
+                                                if (layer.id == activeId) {
+                                                    layer.copy(
+                                                        gridX = (layer.gridX + dxCells).coerceIn(-10f, width.toFloat()),
+                                                        gridY = (layer.gridY + dyCells).coerceIn(-10f, height.toFloat())
+                                                    )
+                                                } else layer
+                                            }
+                                        }
+                                    } else {
+                                        val localX = (change.position.x - panOffset.x) / scale
+                                        val localY = (change.position.y - panOffset.y) / scale
+                                        if (localX >= 0f && localY >= 0f) {
+                                            applyPaint((localX / baseCellPx).toInt(), (localY / baseCellPx).toInt(), recordQuickBlock = false)
+                                        }
+                                    }
+                                },
+                                onDragEnd = {
+                                    if (activeTool == MapTool.ARRANGE_IMAGES) {
+                                        onSyncMap(width, height, grid, tokens, encodedBackground(), true)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    .pointerInput(activeTool, width, height, grid, tokens, selectedTokenId, scale, panOffset, bgLayers) {
                         detectTapGestures { tapOffset ->
                             val localX = (tapOffset.x - panOffset.x) / scale
                             val localY = (tapOffset.y - panOffset.y) / scale
-                            val gx = (localX / baseCellPx).toInt()
-                            val gy = (localY / baseCellPx).toInt()
+                            val cfX = localX / baseCellPx
+                            val cfY = localY / baseCellPx
                             if (localX >= 0f && localY >= 0f) {
-                                handleGridTap(gx, gy)
+                                handleGridTap(cfX.toInt(), cfY.toInt(), cfX, cfY)
                             }
                         }
                     }
@@ -533,17 +863,39 @@ fun GridMapTab(
                         }
                         .size(with(density) { boardWidthPx.toDp() }, with(density) { boardHeightPx.toDp() })
                 ) {
-                    if (bgBitmap != null) {
-                        Image(
-                            bitmap = bgBitmap.asImageBitmap(),
-                            contentDescription = "Map Background",
-                            contentScale = ContentScale.Fit,
-                            alignment = Alignment.TopStart,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                    // Multi-image background layers arranged on the grid
+                    bgLayers.forEach { layer ->
+                        val bmp = remember(layer.imageBase64) { ImagePickerUtil.decodeDataUrlBitmap(layer.imageBase64) }
+                        if (bmp != null) {
+                            val isSelectedLayer = activeTool == MapTool.ARRANGE_IMAGES && selectedBgLayerId == layer.id
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = layer.label,
+                                contentScale = ContentScale.FillBounds,
+                                modifier = Modifier
+                                    .offset {
+                                        IntOffset(
+                                            (layer.gridX * baseCellPx).roundToInt(),
+                                            (layer.gridY * baseCellPx).roundToInt()
+                                        )
+                                    }
+                                    .size(
+                                        width = with(density) { (layer.widthCells * baseCellPx).toDp() },
+                                        height = with(density) { (layer.heightCells * baseCellPx).toDp() }
+                                    )
+                                    .alpha(layer.opacity)
+                                    .then(
+                                        if (isSelectedLayer) {
+                                            Modifier.border(2.dp, MaterialTheme.colorScheme.primary)
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                            )
+                        }
                     }
 
-                    // Painted Color Tiles & Grid Lines
+                    // Painted Background Color Tiles & Grid Lines
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         for (x in 0 until width) {
                             for (y in 0 until height) {
@@ -555,13 +907,13 @@ fun GridMapTab(
                                         Color.DarkGray
                                     }
                                     drawRect(
-                                        color = c.copy(alpha = 0.85f),
+                                        color = c.copy(alpha = 0.88f),
                                         topLeft = Offset(x * baseCellPx, y * baseCellPx),
                                         size = Size(baseCellPx, baseCellPx)
                                     )
                                 }
                                 drawRect(
-                                    color = Color.White.copy(alpha = 0.14f),
+                                    color = Color.White.copy(alpha = 0.16f),
                                     topLeft = Offset(x * baseCellPx, y * baseCellPx),
                                     size = Size(baseCellPx, baseCellPx),
                                     style = Stroke(width = 1f)
@@ -578,7 +930,7 @@ fun GridMapTab(
                         }
                     }
 
-                    // Cell Emojis & Custom Image Tiles
+                    // Cell Foreground Overlays (Emoji or Image ABOVE the Background Block Color)
                     grid.forEach { (key, cell) ->
                         val parts = key.split(",")
                         val gx = parts.getOrNull(0)?.toIntOrNull() ?: return@forEach
@@ -597,10 +949,13 @@ fun GridMapTab(
                                         bitmap = bmp.asImageBitmap(),
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(if (cell.colorHex != null) 3.dp else 0.dp)
+                                            .clip(MaterialTheme.shapes.extraSmall)
                                     )
                                 } else if (cell.emoji != null) {
-                                    Text(cell.emoji)
+                                    Text(text = cell.emoji, fontSize = 18.sp)
                                 }
                             }
                         }
@@ -636,65 +991,183 @@ fun GridMapTab(
                 }
             }
         }
+
+        // Quick Block Inventory Bar docked below the map (rolls off oldest block when adding a 7th)
+        if (isGmMode) {
+            HorizontalDivider()
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("map_quick_block_inventory_bar")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.padding(end = 4.dp)) {
+                        Text(
+                            text = "Quick Blocks (${quickBlocks.size}/6)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Oldest drops at 6",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            saveCurrentComboToQuickInventory()
+                            activeTool = MapTool.BRUSH
+                        },
+                        enabled = selectedColorHex != null || selectedEmoji != null || selectedAssetBase64 != null,
+                        modifier = Modifier.testTag("map_quick_inventory_add_button")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add")
+                    }
+
+                    if (quickBlocks.isEmpty()) {
+                        Text(
+                            text = "Paint or tap + Add to store composite color+emoji blocks",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        quickBlocks.forEachIndexed { idx, block ->
+                            val isActive = block.colorHex == selectedColorHex &&
+                                block.emoji == selectedEmoji &&
+                                block.imageBase64 == selectedAssetBase64 &&
+                                (activeTool == MapTool.BRUSH || activeTool == MapTool.FLOOD_FILL || activeTool == MapTool.RECT_FILL)
+                            CompositeBlockPreview(
+                                colorHex = block.colorHex,
+                                emoji = block.emoji,
+                                imageBase64 = block.imageBase64,
+                                sizeDp = 44.dp,
+                                isSelected = isActive,
+                                onClick = {
+                                    selectedColorHex = block.colorHex
+                                    selectedEmoji = block.emoji
+                                    selectedAssetBase64 = block.imageBase64
+                                    if (activeTool != MapTool.FLOOD_FILL && activeTool != MapTool.RECT_FILL) {
+                                        activeTool = MapTool.BRUSH
+                                    }
+                                },
+                                modifier = Modifier.testTag("map_quick_block_$idx")
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    if (showResizeDialog) {
-        var wText by remember { mutableStateOf(width.toString()) }
-        var hText by remember { mutableStateOf(height.toString()) }
-        AlertDialog(
-            onDismissRequest = { showResizeDialog = false },
-            title = { Text("Resize Grid (4-30)") },
-            text = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = wText,
-                        onValueChange = { wText = it.filter { c -> c.isDigit() } },
-                        label = { Text("Width") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = hText,
-                        onValueChange = { hText = it.filter { c -> c.isDigit() } },
-                        label = { Text("Height") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
+    if (showMapSettingsDialog) {
+        MapSettingsDialog(
+            initialWidth = width,
+            initialHeight = height,
+            initialLayers = bgLayers,
+            onApply = { nw, nh, updatedLayers ->
+                val cleanedGrid = grid.filterKeys { k ->
+                    val p = k.split(",")
+                    val x = p.getOrNull(0)?.toIntOrNull() ?: -1
+                    val y = p.getOrNull(1)?.toIntOrNull() ?: -1
+                    x in 0 until nw && y in 0 until nh
                 }
+                val cleanedTokens = tokens.map {
+                    it.copy(x = it.x.coerceIn(0, nw - 1), y = it.y.coerceIn(0, nh - 1))
+                }
+                width = nw
+                height = nh
+                grid = cleanedGrid
+                tokens = cleanedTokens
+                bgLayers = updatedLayers
+                onSyncMap(nw, nh, cleanedGrid, cleanedTokens, JsonCodecs.encodeMapBackgroundLayers(updatedLayers), true)
+                showMapSettingsDialog = false
             },
-            confirmButton = {
-                Button(onClick = {
-                    val nw = (wText.toIntOrNull() ?: width).coerceIn(4, 30)
-                    val nh = (hText.toIntOrNull() ?: height).coerceIn(4, 30)
-                    val cleanedGrid = grid.filterKeys { k ->
-                        val p = k.split(",")
-                        val x = p.getOrNull(0)?.toIntOrNull() ?: -1
-                        val y = p.getOrNull(1)?.toIntOrNull() ?: -1
-                        x in 0 until nw && y in 0 until nh
-                    }
-                    val cleanedTokens = tokens.map {
-                        it.copy(x = it.x.coerceIn(0, nw - 1), y = it.y.coerceIn(0, nh - 1))
-                    }
-                    width = nw; height = nh; grid = cleanedGrid; tokens = cleanedTokens
-                    onSyncMap(nw, nh, cleanedGrid, cleanedTokens, backgroundUrl, true)
-                    showResizeDialog = false
-                }) { Text("Apply") }
+            onArrangeOnCanvas = { nw, nh, updatedLayers ->
+                val cleanedGrid = grid.filterKeys { k ->
+                    val p = k.split(",")
+                    val x = p.getOrNull(0)?.toIntOrNull() ?: -1
+                    val y = p.getOrNull(1)?.toIntOrNull() ?: -1
+                    x in 0 until nw && y in 0 until nh
+                }
+                val cleanedTokens = tokens.map {
+                    it.copy(x = it.x.coerceIn(0, nw - 1), y = it.y.coerceIn(0, nh - 1))
+                }
+                width = nw
+                height = nh
+                grid = cleanedGrid
+                tokens = cleanedTokens
+                bgLayers = updatedLayers
+                selectedBgLayerId = updatedLayers.lastOrNull()?.id
+                onSyncMap(nw, nh, cleanedGrid, cleanedTokens, JsonCodecs.encodeMapBackgroundLayers(updatedLayers), true)
+                showMapSettingsDialog = false
+                activeTool = MapTool.ARRANGE_IMAGES
             },
-            dismissButton = {
-                TextButton(onClick = { showResizeDialog = false }) { Text("Cancel") }
-            }
+            onDismiss = { showMapSettingsDialog = false }
         )
     }
 
     if (showTokenPicker) {
         val placeableChars = if (isGmMode) characters else characters.filter { it.ownerId == currentUserId }
+        var customTokenName by remember { mutableStateOf("") }
+        var customTokenEmoji by remember { mutableStateOf("🧙") }
+        var showCustomTokenEmojiPicker by remember { mutableStateOf(false) }
+
         AlertDialog(
             onDismissRequest = { showTokenPicker = false },
             title = { Text("Place Token on Map") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilterChip(
+                            selected = false,
+                            onClick = { showCustomTokenEmojiPicker = true },
+                            label = { Text(customTokenEmoji) },
+                            modifier = Modifier.testTag("map_custom_token_emoji_button")
+                        )
+                        OutlinedTextField(
+                            value = customTokenName,
+                            onValueChange = { customTokenName = it },
+                            label = { Text("Custom Token Label") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = {
+                                val newToken = MapToken(
+                                    id = "tk_${UUID.randomUUID().toString().take(8)}",
+                                    label = customTokenName.trim().ifBlank { "Marker" },
+                                    emoji = customTokenEmoji,
+                                    kind = "npc",
+                                    ownerId = currentUserId,
+                                    x = (width / 2).coerceIn(0, width - 1),
+                                    y = (height / 2).coerceIn(0, height - 1),
+                                )
+                                val updated = tokens + newToken
+                                tokens = updated
+                                onSyncMap(width, height, grid, updated, encodedBackground(), true)
+                                showTokenPicker = false
+                            },
+                            modifier = Modifier.testTag("map_add_custom_token_button")
+                        ) { Text("Add") }
+                    }
+
                     if (placeableChars.isEmpty()) {
-                        Text("Create a character first or place a quick token.")
+                        Text("Or create a character sheet first to place named tokens.")
                     }
                     placeableChars.forEach { ch ->
                         Surface(
@@ -714,7 +1187,7 @@ fun GridMapTab(
                                     )
                                     val updated = tokens + newToken
                                     tokens = updated
-                                    onSyncMap(width, height, grid, updated, backgroundUrl, true)
+                                    onSyncMap(width, height, grid, updated, encodedBackground(), true)
                                     showTokenPicker = false
                                 }
                         ) {
@@ -734,9 +1207,164 @@ fun GridMapTab(
                 TextButton(onClick = { showTokenPicker = false }) { Text("Close") }
             }
         )
+
+        if (showCustomTokenEmojiPicker) {
+            AllEmojiPickerDialog(
+                currentEmoji = customTokenEmoji,
+                title = "Select Token Emoji",
+                onSelect = { picked -> customTokenEmoji = picked },
+                onDismiss = { showCustomTokenEmojiPicker = false }
+            )
+        }
+    }
+
+    if (showMapEmojiPicker) {
+        AllEmojiPickerDialog(
+            currentEmoji = selectedEmoji ?: "🏰",
+            title = "Select Terrain Emoji",
+            onSelect = { picked ->
+                selectedEmoji = picked
+                selectedAssetBase64 = null
+            },
+            onDismiss = { showMapEmojiPicker = false }
+        )
+    }
+
+    if (showAiMapDialog) {
+        AiMapArchitectDialog(
+            currentWidth = width,
+            currentHeight = height,
+            hasExistingTiles = grid.isNotEmpty(),
+            userSettings = userSettings,
+            aiMapState = aiMapState,
+            onSelectProvider = onSelectAiProvider,
+            onSelectModel = onSelectAiModel,
+            onSelectEndpointUrl = onSelectAiEndpointUrl,
+            onSelectApiKey = onSelectAiApiKey,
+            onGenerate = { prompt, replaceEntireMap, targetW, targetH ->
+                val prevW = width
+                val prevH = height
+                val prevGrid = grid
+                val prevTokens = tokens
+                onGenerateAiMap(
+                    prompt,
+                    prevW,
+                    prevH,
+                    prevGrid,
+                    prevTokens,
+                    replaceEntireMap,
+                    targetW,
+                    targetH,
+                ) { outcome ->
+                    aiUndoSnapshot = AiMapUndoSnapshot(
+                        width = prevW,
+                        height = prevH,
+                        grid = prevGrid,
+                        tokens = prevTokens,
+                        summary = outcome.summary,
+                        scriptJson = outcome.scriptJson,
+                    )
+                    width = outcome.width
+                    height = outcome.height
+                    grid = outcome.grid
+                    tokens = outcome.tokens
+                    showAiMapDialog = false
+                    onSyncMap(
+                        outcome.width,
+                        outcome.height,
+                        outcome.grid,
+                        outcome.tokens,
+                        encodedBackground(),
+                        true,
+                    )
+                }
+            },
+            onClearError = onClearAiMapError,
+            onDismiss = {
+                onClearAiMapError()
+                showAiMapDialog = false
+            },
+        )
+    }
+
+    if (showAiCodeDialog && aiUndoSnapshot != null) {
+        AiMapCodeViewerDialog(
+            summary = aiUndoSnapshot!!.summary,
+            scriptJson = aiUndoSnapshot!!.scriptJson,
+            grid = grid,
+            onPickBrushBlock = { colorHex, emoji ->
+                selectedColorHex = colorHex
+                selectedEmoji = emoji
+                selectedAssetBase64 = null
+                activeTool = MapTool.BRUSH
+            },
+            onDismiss = { showAiCodeDialog = false }
+        )
+    }
+
+    if (showColorPaletteDialog) {
+        ExpandedColorPaletteDialog(
+            currentColorHex = selectedColorHex,
+            onSelectColor = { hex ->
+                selectedColorHex = hex
+                if (activeTool != MapTool.FLOOD_FILL && activeTool != MapTool.RECT_FILL) {
+                    activeTool = MapTool.BRUSH
+                }
+            },
+            onDismiss = { showColorPaletteDialog = false }
+        )
     }
 
     if (showGuide) {
         IdeaGuideDialog(guideKey = "map", onDismiss = { showGuide = false })
+    }
+}
+
+@Composable
+private fun CompositeBlockPreview(
+    colorHex: String?,
+    emoji: String?,
+    imageBase64: String?,
+    sizeDp: androidx.compose.ui.unit.Dp,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val bgColor = remember(colorHex) {
+        if (colorHex != null) {
+            runCatching { Color(android.graphics.Color.parseColor(colorHex)) }
+                .getOrElse { Color(0xFF334155) }
+        } else {
+            Color.Transparent
+        }
+    }
+    val bmp = remember(imageBase64) { ImagePickerUtil.decodeDataUrlBitmap(imageBase64) }
+
+    Box(
+        modifier = modifier
+            .size(sizeDp)
+            .clip(MaterialTheme.shapes.small)
+            .background(if (colorHex != null) bgColor else MaterialTheme.colorScheme.surface)
+            .border(
+                width = if (isSelected) 2.5.dp else 1.dp,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.35f),
+                shape = MaterialTheme.shapes.small
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bmp != null) {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = "Block image",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(if (colorHex != null) 3.dp else 0.dp)
+                    .clip(MaterialTheme.shapes.extraSmall)
+            )
+        } else if (emoji != null) {
+            Text(text = emoji, fontSize = 19.sp)
+        }
     }
 }

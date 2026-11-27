@@ -45,10 +45,25 @@ data class UserSettings(
     val customAccentArgb: Long? = null,
     val textScale: TextScalePreset = TextScalePreset.MEDIUM,
     val languageCode: String = "en",
-    val aiProvider: AiProvider = if (UnorouterClient.hasBuildConfigKey()) AiProvider.UNOROUTER else AiProvider.GEMINI,
-    val aiModel: String = if (UnorouterClient.hasBuildConfigKey()) AiModelDefaults.DEFAULT_UNOROUTER_MODEL else AiModelDefaults.DEFAULT_GEMINI_MODEL,
-    val aiEndpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
+    val aiProvider: AiProvider = when {
+        UnorouterClient.hasOpenRouterBuildConfigKey() -> AiProvider.OPENROUTER
+        UnorouterClient.hasBuildConfigKey() -> AiProvider.UNOROUTER
+        else -> AiProvider.GEMINI
+    },
+    val aiModel: String = when {
+        UnorouterClient.hasOpenRouterBuildConfigKey() -> AiModelDefaults.DEFAULT_OPENROUTER_MODEL
+        UnorouterClient.hasBuildConfigKey() -> AiModelDefaults.DEFAULT_UNOROUTER_MODEL
+        else -> AiModelDefaults.DEFAULT_GEMINI_MODEL
+    },
+    val aiEndpointUrl: String = if (UnorouterClient.hasOpenRouterBuildConfigKey()) {
+        AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT
+    } else {
+        AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT
+    },
     val aiApiKey: String = "",
+    val aiImageEndpointUrl: String = AiModelDefaults.DEFAULT_IMAGE_ENDPOINT,
+    val aiImageModel: String = AiModelDefaults.DEFAULT_IMAGE_MODEL,
+    val aiImageApiKey: String = "",
 )
 
 class PreferencesRepository(private val context: Context) {
@@ -58,21 +73,33 @@ class PreferencesRepository(private val context: Context) {
         val TEXT_SCALE = stringPreferencesKey("text_scale")
         val LANGUAGE = stringPreferencesKey("language_code")
         val QUICK_MAP_ASSETS = stringPreferencesKey("quick_map_assets_json")
+        val QUICK_MAP_BLOCKS = stringPreferencesKey("quick_map_blocks_json")
         val AI_PROVIDER = stringPreferencesKey("ai_provider")
         val AI_MODEL = stringPreferencesKey("ai_model")
         val AI_ENDPOINT_URL = stringPreferencesKey("ai_endpoint_url")
         val AI_API_KEY = stringPreferencesKey("ai_api_key")
+        val AI_IMAGE_ENDPOINT_URL = stringPreferencesKey("ai_image_endpoint_url")
+        val AI_IMAGE_MODEL = stringPreferencesKey("ai_image_model")
+        val AI_IMAGE_API_KEY = stringPreferencesKey("ai_image_api_key")
     }
 
     val settingsFlow: Flow<UserSettings> = context.storyWeaverDataStore.data.map { prefs ->
         val storedKey = prefs[Keys.AI_API_KEY].orEmpty()
-        val hasAnyKey = UnorouterClient.isConfigured(storedKey)
-        val defaultProvider = if (hasAnyKey) AiProvider.UNOROUTER else AiProvider.GEMINI
+        val defaultProvider = when {
+            UnorouterClient.hasOpenRouterBuildConfigKey() -> AiProvider.OPENROUTER
+            UnorouterClient.isConfigured(storedKey, AiProvider.UNOROUTER) -> AiProvider.UNOROUTER
+            else -> AiProvider.GEMINI
+        }
         val provider = prefs[Keys.AI_PROVIDER]?.let { AiProvider.fromKey(it) } ?: defaultProvider
-        val defaultModel = if (provider == AiProvider.UNOROUTER) {
-            AiModelDefaults.DEFAULT_UNOROUTER_MODEL
+        val defaultModel = when (provider) {
+            AiProvider.OPENROUTER -> AiModelDefaults.DEFAULT_OPENROUTER_MODEL
+            AiProvider.UNOROUTER -> AiModelDefaults.DEFAULT_UNOROUTER_MODEL
+            AiProvider.GEMINI -> AiModelDefaults.DEFAULT_GEMINI_MODEL
+        }
+        val defaultEndpoint = if (provider == AiProvider.OPENROUTER) {
+            AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT
         } else {
-            AiModelDefaults.DEFAULT_GEMINI_MODEL
+            AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT
         }
         UserSettings(
             themePreset = ThemePreset.fromKey(prefs[Keys.THEME_PRESET]),
@@ -81,14 +108,22 @@ class PreferencesRepository(private val context: Context) {
             languageCode = prefs[Keys.LANGUAGE] ?: "en",
             aiProvider = provider,
             aiModel = prefs[Keys.AI_MODEL]?.takeIf { it.isNotBlank() } ?: defaultModel,
-            aiEndpointUrl = prefs[Keys.AI_ENDPOINT_URL]?.takeIf { it.isNotBlank() }
-                ?: AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
+            aiEndpointUrl = prefs[Keys.AI_ENDPOINT_URL]?.takeIf { it.isNotBlank() } ?: defaultEndpoint,
             aiApiKey = storedKey,
+            aiImageEndpointUrl = prefs[Keys.AI_IMAGE_ENDPOINT_URL]?.takeIf { it.isNotBlank() }
+                ?: AiModelDefaults.DEFAULT_IMAGE_ENDPOINT,
+            aiImageModel = prefs[Keys.AI_IMAGE_MODEL]?.takeIf { it.isNotBlank() }
+                ?: AiModelDefaults.DEFAULT_IMAGE_MODEL,
+            aiImageApiKey = prefs[Keys.AI_IMAGE_API_KEY].orEmpty(),
         )
     }
 
     val quickMapAssetsFlow: Flow<List<QuickMapAsset>> = context.storyWeaverDataStore.data.map { prefs ->
         JsonCodecs.decodeQuickAssets(prefs[Keys.QUICK_MAP_ASSETS] ?: "[]")
+    }
+
+    val quickMapBlocksFlow: Flow<List<QuickMapBlock>> = context.storyWeaverDataStore.data.map { prefs ->
+        JsonCodecs.decodeQuickBlocks(prefs[Keys.QUICK_MAP_BLOCKS] ?: "[]")
     }
 
     suspend fun setThemePreset(preset: ThemePreset) {
@@ -114,10 +149,29 @@ class PreferencesRepository(private val context: Context) {
         context.storyWeaverDataStore.edit { prefs ->
             prefs[Keys.AI_PROVIDER] = provider.key
             val currentModel = prefs[Keys.AI_MODEL].orEmpty()
-            if (provider == AiProvider.UNOROUTER && (currentModel.isBlank() || currentModel.startsWith("gemini"))) {
-                prefs[Keys.AI_MODEL] = AiModelDefaults.DEFAULT_UNOROUTER_MODEL
-            } else if (provider == AiProvider.GEMINI && (currentModel.isBlank() || !currentModel.startsWith("gemini"))) {
-                prefs[Keys.AI_MODEL] = AiModelDefaults.DEFAULT_GEMINI_MODEL
+            val currentEndpoint = prefs[Keys.AI_ENDPOINT_URL].orEmpty()
+            when (provider) {
+                AiProvider.OPENROUTER -> {
+                    if (currentModel.isBlank() || currentModel.startsWith("gemini-") || currentModel == AiModelDefaults.DEFAULT_UNOROUTER_MODEL) {
+                        prefs[Keys.AI_MODEL] = AiModelDefaults.DEFAULT_OPENROUTER_MODEL
+                    }
+                    if (currentEndpoint.isBlank() || currentEndpoint == AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT) {
+                        prefs[Keys.AI_ENDPOINT_URL] = AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT
+                    }
+                }
+                AiProvider.UNOROUTER -> {
+                    if (currentModel.isBlank() || currentModel.startsWith("gemini-") || currentModel == AiModelDefaults.DEFAULT_OPENROUTER_MODEL) {
+                        prefs[Keys.AI_MODEL] = AiModelDefaults.DEFAULT_UNOROUTER_MODEL
+                    }
+                    if (currentEndpoint.isBlank() || currentEndpoint == AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT) {
+                        prefs[Keys.AI_ENDPOINT_URL] = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT
+                    }
+                }
+                AiProvider.GEMINI -> {
+                    if (currentModel.isBlank() || !currentModel.startsWith("gemini-")) {
+                        prefs[Keys.AI_MODEL] = AiModelDefaults.DEFAULT_GEMINI_MODEL
+                    }
+                }
             }
         }
     }
@@ -141,9 +195,34 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
+    suspend fun setAiImageEndpointUrl(url: String) {
+        val clean = url.trim().ifBlank { AiModelDefaults.DEFAULT_IMAGE_ENDPOINT }
+        context.storyWeaverDataStore.edit { it[Keys.AI_IMAGE_ENDPOINT_URL] = clean }
+    }
+
+    suspend fun setAiImageModel(model: String) {
+        val clean = model.trim()
+        if (clean.isEmpty()) return
+        context.storyWeaverDataStore.edit { it[Keys.AI_IMAGE_MODEL] = clean }
+    }
+
+    suspend fun setAiImageApiKey(apiKey: String) {
+        val clean = apiKey.trim()
+        context.storyWeaverDataStore.edit { prefs ->
+            if (clean.isEmpty()) prefs.remove(Keys.AI_IMAGE_API_KEY)
+            else prefs[Keys.AI_IMAGE_API_KEY] = clean
+        }
+    }
+
     suspend fun saveQuickMapAssets(assets: List<QuickMapAsset>) {
         context.storyWeaverDataStore.edit {
             it[Keys.QUICK_MAP_ASSETS] = JsonCodecs.encodeQuickAssets(assets.take(16))
+        }
+    }
+
+    suspend fun saveQuickMapBlocks(blocks: List<QuickMapBlock>) {
+        context.storyWeaverDataStore.edit {
+            it[Keys.QUICK_MAP_BLOCKS] = JsonCodecs.encodeQuickBlocks(blocks.take(6))
         }
     }
 }

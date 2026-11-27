@@ -4,9 +4,12 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ai.AiChatMessage
+import com.example.ai.AiChatMode
 import com.example.ai.AiChatUiState
+import com.example.ai.AiImageGeneratorService
 import com.example.ai.AiParserService
 import com.example.ai.AiProvider
+import com.example.ai.SvgCodeToImageUtil
 import com.example.data.ActivityLog
 import com.example.data.Character
 import com.example.data.ChatMessage
@@ -14,9 +17,11 @@ import com.example.data.DiceRoll
 import com.example.data.EquipmentSlotItem
 import com.example.data.GridCell
 import com.example.data.JsonCodecs
+import com.example.data.MapPaintOutcome
 import com.example.data.MapToken
 import com.example.data.PreferencesRepository
 import com.example.data.QuickMapAsset
+import com.example.data.QuickMapBlock
 import com.example.data.Story
 import com.example.data.StoryRepository
 import com.example.data.UserSettings
@@ -41,6 +46,12 @@ sealed interface AiUiState {
     data object Loading : AiUiState
     data class Success(val summary: String) : AiUiState
     data class Error(val message: String) : AiUiState
+}
+
+sealed interface AiMapUiState {
+    data object Idle : AiMapUiState
+    data object Loading : AiMapUiState
+    data class Error(val message: String) : AiMapUiState
 }
 
 class StoryViewModel(
@@ -126,6 +137,9 @@ class StoryViewModel(
     val quickMapAssets: StateFlow<List<QuickMapAsset>> = preferencesRepository.quickMapAssetsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
 
+    val quickMapBlocks: StateFlow<List<QuickMapBlock>> = preferencesRepository.quickMapBlocksFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
     val userSettings: StateFlow<UserSettings> = preferencesRepository.settingsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UserSettings())
 
@@ -134,6 +148,9 @@ class StoryViewModel(
 
     private val _aiState = MutableStateFlow<AiUiState>(AiUiState.Idle)
     val aiState: StateFlow<AiUiState> = _aiState.asStateFlow()
+
+    private val _aiMapState = MutableStateFlow<AiMapUiState>(AiMapUiState.Idle)
+    val aiMapState: StateFlow<AiMapUiState> = _aiMapState.asStateFlow()
 
     private val _aiChatState = MutableStateFlow(AiChatUiState())
     val aiChatState: StateFlow<AiChatUiState> = _aiChatState.asStateFlow()
@@ -164,6 +181,50 @@ class StoryViewModel(
         viewModelScope.launch { preferencesRepository.setAiModel(model) }
     }
 
+    fun setAiEndpointUrl(url: String) {
+        viewModelScope.launch { preferencesRepository.setAiEndpointUrl(url) }
+    }
+
+    fun setAiApiKey(apiKey: String) {
+        viewModelScope.launch { preferencesRepository.setAiApiKey(apiKey) }
+    }
+
+    fun setAiImageEndpointUrl(url: String) {
+        viewModelScope.launch { preferencesRepository.setAiImageEndpointUrl(url) }
+    }
+
+    fun setAiImageModel(model: String) {
+        viewModelScope.launch { preferencesRepository.setAiImageModel(model) }
+    }
+
+    fun setAiImageApiKey(apiKey: String) {
+        viewModelScope.launch { preferencesRepository.setAiImageApiKey(apiKey) }
+    }
+
+    fun generateEntityImage(
+        prompt: String,
+        maxDimension: Int = 320,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        val settings = userSettings.value
+        viewModelScope.launch {
+            AiImageGeneratorService.generateImageDataUrl(
+                prompt = prompt,
+                model = settings.aiImageModel,
+                endpointUrl = settings.aiImageEndpointUrl,
+                imageApiKeyOverride = settings.aiImageApiKey,
+                chatApiKeyOverride = settings.aiApiKey,
+                maxDimension = maxDimension,
+                quality = if (maxDimension <= 200) 72 else 78,
+            ).onSuccess { dataUrl ->
+                onSuccess(dataUrl)
+            }.onFailure { err ->
+                onError(err.localizedMessage ?: "Image generation failed.")
+            }
+        }
+    }
+
     fun clearAiChat() {
         _aiChatState.value = AiChatUiState()
     }
@@ -172,11 +233,28 @@ class StoryViewModel(
         _aiChatState.value = _aiChatState.value.copy(errorMessage = null)
     }
 
-    fun sendAiChatMessage(story: Story?, prompt: String, contextHint: String? = null) {
+    fun showToast(message: String) {
+        _toastMessage.value = message
+    }
+
+    fun sendAiChatMessage(
+        story: Story?,
+        prompt: String,
+        contextHint: String? = null,
+        mode: AiChatMode = AiChatMode.TEXT,
+    ) {
         val clean = prompt.trim()
         if (clean.isEmpty() || _aiChatState.value.isLoading) return
         val settings = userSettings.value
-        val userMsg = AiChatMessage(role = "user", content = clean)
+        val activeModelLabel = if (mode == AiChatMode.IMAGE && settings.aiProvider == AiProvider.GEMINI) {
+            settings.aiImageModel
+        } else {
+            settings.aiModel
+        }
+        val userMsg = AiChatMessage(
+            role = "user",
+            content = if (mode == AiChatMode.IMAGE) "🎨 [Image] $clean" else clean,
+        )
         val updatedHistory = _aiChatState.value.messages + userMsg
         _aiChatState.value = _aiChatState.value.copy(
             messages = updatedHistory,
@@ -184,30 +262,72 @@ class StoryViewModel(
             errorMessage = null,
         )
         viewModelScope.launch {
-            aiParser.chatWithAi(
-                history = updatedHistory,
-                story = story,
-                provider = settings.aiProvider,
-                modelName = settings.aiModel,
-                endpointUrl = settings.aiEndpointUrl,
-                apiKeyOverride = settings.aiApiKey,
-                contextHint = contextHint,
-            ).onSuccess { reply ->
-                val assistantMsg = AiChatMessage(
-                    role = "assistant",
-                    content = reply,
-                    modelUsed = settings.aiModel,
-                )
-                _aiChatState.value = _aiChatState.value.copy(
-                    messages = _aiChatState.value.messages + assistantMsg,
-                    isLoading = false,
-                    errorMessage = null,
-                )
-            }.onFailure { err ->
-                _aiChatState.value = _aiChatState.value.copy(
-                    isLoading = false,
-                    errorMessage = err.localizedMessage ?: "AI request failed.",
-                )
+            if (mode == AiChatMode.IMAGE) {
+                val targetEndpoint = if (settings.aiProvider == AiProvider.GEMINI) {
+                    settings.aiImageEndpointUrl
+                } else {
+                    settings.aiEndpointUrl
+                }
+                val targetModel = if (settings.aiProvider == AiProvider.GEMINI) {
+                    settings.aiImageModel
+                } else {
+                    settings.aiModel
+                }
+                AiImageGeneratorService.generateImageDataUrl(
+                    prompt = clean,
+                    model = targetModel,
+                    endpointUrl = targetEndpoint,
+                    imageApiKeyOverride = settings.aiImageApiKey,
+                    chatApiKeyOverride = settings.aiApiKey,
+                    maxDimension = 1024,
+                    quality = 90,
+                ).onSuccess { dataUrl ->
+                    val assistantMsg = AiChatMessage(
+                        role = "assistant",
+                        content = "Generated image for \"$clean\".",
+                        imageDataUrl = dataUrl,
+                        modelUsed = targetModel,
+                    )
+                    _aiChatState.value = _aiChatState.value.copy(
+                        messages = _aiChatState.value.messages + assistantMsg,
+                        isLoading = false,
+                        errorMessage = null,
+                    )
+                }.onFailure { err ->
+                    _aiChatState.value = _aiChatState.value.copy(
+                        isLoading = false,
+                        errorMessage = err.localizedMessage
+                            ?: "Model \"$activeModelLabel\" cannot generate images.",
+                    )
+                }
+            } else {
+                aiParser.chatWithAi(
+                    history = updatedHistory,
+                    story = story,
+                    provider = settings.aiProvider,
+                    modelName = settings.aiModel,
+                    endpointUrl = settings.aiEndpointUrl,
+                    apiKeyOverride = settings.aiApiKey,
+                    contextHint = contextHint,
+                ).onSuccess { reply ->
+                    val renderedCodeImg = SvgCodeToImageUtil.extractAndRenderCodeImage(reply)
+                    val assistantMsg = AiChatMessage(
+                        role = "assistant",
+                        content = reply,
+                        imageDataUrl = renderedCodeImg,
+                        modelUsed = settings.aiModel,
+                    )
+                    _aiChatState.value = _aiChatState.value.copy(
+                        messages = _aiChatState.value.messages + assistantMsg,
+                        isLoading = false,
+                        errorMessage = null,
+                    )
+                }.onFailure { err ->
+                    _aiChatState.value = _aiChatState.value.copy(
+                        isLoading = false,
+                        errorMessage = err.localizedMessage ?: "AI request failed.",
+                    )
+                }
             }
         }
     }
@@ -344,6 +464,24 @@ class StoryViewModel(
     fun removeQuickMapAsset(id: String) {
         viewModelScope.launch {
             preferencesRepository.saveQuickMapAssets(quickMapAssets.value.filterNot { it.id == id })
+        }
+    }
+
+    fun addQuickMapBlock(block: QuickMapBlock) {
+        viewModelScope.launch {
+            val current = quickMapBlocks.value.filterNot {
+                it.colorHex == block.colorHex &&
+                    it.emoji == block.emoji &&
+                    it.imageBase64 == block.imageBase64
+            }
+            val next = (listOf(block) + current).take(6)
+            preferencesRepository.saveQuickMapBlocks(next)
+        }
+    }
+
+    fun removeQuickMapBlock(id: String) {
+        viewModelScope.launch {
+            preferencesRepository.saveQuickMapBlocks(quickMapBlocks.value.filterNot { it.id == id })
         }
     }
 
@@ -500,6 +638,55 @@ class StoryViewModel(
                 .onFailure { err ->
                     _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI equipment parse failed.")
                 }
+        }
+    }
+
+    fun clearAiMapError() {
+        if (_aiMapState.value is AiMapUiState.Error) {
+            _aiMapState.value = AiMapUiState.Idle
+        }
+    }
+
+    fun generateMapWithAi(
+        story: Story,
+        prompt: String,
+        currentWidth: Int,
+        currentHeight: Int,
+        currentGrid: Map<String, GridCell>,
+        currentTokens: List<MapToken>,
+        replaceEntireMap: Boolean,
+        targetWidth: Int? = null,
+        targetHeight: Int? = null,
+        onApplied: (MapPaintOutcome) -> Unit,
+    ) {
+        val clean = prompt.trim()
+        if (clean.isEmpty() || _aiMapState.value is AiMapUiState.Loading) return
+        val settings = userSettings.value
+        _aiMapState.value = AiMapUiState.Loading
+        viewModelScope.launch {
+            aiParser.generateMapWithAi(
+                userPrompt = clean,
+                story = story,
+                ownerId = currentUserId,
+                currentWidth = currentWidth,
+                currentHeight = currentHeight,
+                currentGrid = currentGrid,
+                currentTokens = currentTokens,
+                replaceEntireMap = replaceEntireMap,
+                targetWidth = targetWidth,
+                targetHeight = targetHeight,
+                provider = settings.aiProvider,
+                modelName = settings.aiModel,
+                endpointUrl = settings.aiEndpointUrl,
+                apiKeyOverride = settings.aiApiKey,
+            ).onSuccess { outcome ->
+                _aiMapState.value = AiMapUiState.Idle
+                onApplied(outcome)
+            }.onFailure { err ->
+                _aiMapState.value = AiMapUiState.Error(
+                    err.localizedMessage ?: "Failed to generate map with AI."
+                )
+            }
         }
     }
 

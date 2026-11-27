@@ -22,31 +22,73 @@ data class ParsedCurlConfig(
 
 object UnorouterClient {
     private const val TAG = "UnorouterClient"
-    private const val PLACEHOLDER_VALUE = "UNOROUTER_API_KEY_DEFAULT_VALUE"
+    private const val PLACEHOLDER_UNOROUTER = "UNOROUTER_API_KEY_DEFAULT_VALUE"
+    private const val PLACEHOLDER_OPENROUTER = "OPENROUTER_API_KEY_DEFAULT_VALUE"
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
-    private val httpClient: OkHttpClient by lazy {
+    val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(25, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .writeTimeout(25, TimeUnit.SECONDS)
             .build()
     }
 
     fun hasBuildConfigKey(): Boolean {
         val key = BuildConfig.UNOROUTER_API_KEY.trim()
-        return key.isNotEmpty() && key != PLACEHOLDER_VALUE
+        return key.isNotEmpty() && key != PLACEHOLDER_UNOROUTER
     }
 
-    fun resolveApiKey(userApiKey: String): String {
+    fun hasOpenRouterBuildConfigKey(): Boolean {
+        val key = BuildConfig.OPENROUTER_API_KEY.trim()
+        return key.isNotEmpty() && key != PLACEHOLDER_OPENROUTER
+    }
+
+    fun resolveApiKey(
+        userApiKey: String,
+        provider: AiProvider = AiProvider.UNOROUTER,
+    ): String {
         val custom = userApiKey.trim()
         if (custom.isNotEmpty()) return custom
-        val buildKey = BuildConfig.UNOROUTER_API_KEY.trim()
-        return if (buildKey != PLACEHOLDER_VALUE) buildKey else ""
+        val openRouterKey = BuildConfig.OPENROUTER_API_KEY.trim()
+            .takeIf { it.isNotEmpty() && it != PLACEHOLDER_OPENROUTER }
+        val unorouterKey = BuildConfig.UNOROUTER_API_KEY.trim()
+            .takeIf { it.isNotEmpty() && it != PLACEHOLDER_UNOROUTER }
+        return when (provider) {
+            AiProvider.OPENROUTER -> openRouterKey ?: unorouterKey.orEmpty()
+            AiProvider.UNOROUTER -> unorouterKey ?: openRouterKey.orEmpty()
+            AiProvider.GEMINI -> ""
+        }
     }
 
-    fun isConfigured(userApiKey: String = ""): Boolean =
-        resolveApiKey(userApiKey).isNotEmpty()
+    fun resolveEndpointUrl(
+        provider: AiProvider,
+        rawEndpointUrl: String,
+    ): String {
+        val trimmed = rawEndpointUrl.trim()
+        return when (provider) {
+            AiProvider.OPENROUTER -> {
+                if (trimmed.isEmpty() || trimmed == AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT) {
+                    AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT
+                } else {
+                    trimmed
+                }
+            }
+            AiProvider.UNOROUTER -> {
+                if (trimmed.isEmpty() || trimmed == AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT) {
+                    AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT
+                } else {
+                    trimmed
+                }
+            }
+            AiProvider.GEMINI -> trimmed.ifBlank { AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT }
+        }
+    }
+
+    fun isConfigured(
+        userApiKey: String = "",
+        provider: AiProvider = AiProvider.UNOROUTER,
+    ): Boolean = resolveApiKey(userApiKey, provider).isNotEmpty()
 
     fun isValidEndpointUrl(rawUrl: String): Boolean {
         val trimmed = rawUrl.trim()
@@ -80,28 +122,35 @@ object UnorouterClient {
     suspend fun sendChatCompletion(
         model: String,
         messages: List<Pair<String, String>>,
+        provider: AiProvider = AiProvider.UNOROUTER,
         endpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
         apiKeyOverride: String = "",
         temperature: Double = 0.7,
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val resolvedUrl = endpointUrl.trim().ifBlank { AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT }
+            val resolvedUrl = resolveEndpointUrl(provider, endpointUrl)
             if (!isValidEndpointUrl(resolvedUrl)) {
                 return@withContext Result.failure(
                     IllegalArgumentException("Invalid API endpoint URL. It must start with https://.")
                 )
             }
 
-            val apiKey = resolveApiKey(apiKeyOverride)
+            val apiKey = resolveApiKey(apiKeyOverride, provider)
             if (apiKey.isEmpty()) {
                 return@withContext Result.failure(
                     IllegalStateException(
-                        "No API key configured. Open Settings to enter your API key (or set UNOROUTER_API_KEY in AI Studio Secrets), or switch to Gemini (Firebase AI)."
+                        "No API key configured. Open Settings to enter your API key (or set OPENROUTER_API_KEY / UNOROUTER_API_KEY in AI Studio Secrets), or switch to Gemini (Firebase AI)."
                     )
                 )
             }
 
-            val cleanModel = model.trim().ifBlank { AiModelDefaults.DEFAULT_UNOROUTER_MODEL }
+            val fallbackModel = if (provider == AiProvider.OPENROUTER) {
+                AiModelDefaults.DEFAULT_OPENROUTER_MODEL
+            } else {
+                AiModelDefaults.DEFAULT_UNOROUTER_MODEL
+            }
+            val cleanModel = model.trim().ifBlank { fallbackModel }
+
             val messagesArray = JSONArray()
             messages.forEach { (role, content) ->
                 if (content.isNotBlank()) {
@@ -120,10 +169,17 @@ object UnorouterClient {
                 put("temperature", temperature)
             }
 
-            val request = Request.Builder()
+            val requestBuilder = Request.Builder()
                 .url(resolvedUrl)
                 .addHeader("Authorization", "Bearer $apiKey")
                 .addHeader("Content-Type", "application/json")
+            if (resolvedUrl.contains("openrouter.ai", ignoreCase = true)) {
+                requestBuilder
+                    .addHeader("HTTP-Referer", "https://storyweaver.app")
+                    .addHeader("X-Title", "Story Weaver")
+            }
+
+            val request = requestBuilder
                 .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
@@ -137,17 +193,42 @@ object UnorouterClient {
                             ?: errObj.optString("message").takeIf { it.isNotBlank() }
                     }.getOrNull()
                     val msg = apiErr ?: "HTTP ${response.code} from API endpoint"
-                    return@withContext Result.failure(IllegalStateException(msg))
+                    val lowerMsg = msg.lowercase()
+                    val formatted = if (
+                        lowerMsg.contains("image") ||
+                        lowerMsg.contains("modalit") ||
+                        lowerMsg.contains("text")
+                    ) {
+                        "Model \"$cleanModel\" rejected text output ($msg). If this is an image model, switch Chat mode to Image or choose a text model such as ${AiModelDefaults.DEFAULT_UNOROUTER_MODEL}."
+                    } else {
+                        msg
+                    }
+                    return@withContext Result.failure(IllegalStateException(formatted))
                 }
 
                 val root = JSONObject(rawBody)
                 val choices = root.optJSONArray("choices")
                 val firstChoice = choices?.optJSONObject(0)
                 val messageObj = firstChoice?.optJSONObject("message")
-                val content = messageObj?.optString("content")?.trim()
-                if (content.isNullOrBlank()) {
+                val imagesArr = messageObj?.optJSONArray("images")
+                val hasImages = imagesArr != null && imagesArr.length() > 0
+                val dataArr = root.optJSONArray("data")
+                val hasImageData = dataArr != null && dataArr.length() > 0
+
+                val content = messageObj?.optString("content")?.trim().orEmpty()
+                val isRawImageDataUri = content.startsWith("data:image/", ignoreCase = true)
+
+                if ((hasImages && content.isBlank()) || hasImageData || isRawImageDataUri) {
                     return@withContext Result.failure(
-                        IllegalStateException("API returned an empty response for model \"$cleanModel\".")
+                        IllegalStateException(
+                            "Model \"$cleanModel\" is an image-generation model and returned image output instead of text. Switch Chat mode to Image, or select a text model such as ${AiModelDefaults.DEFAULT_UNOROUTER_MODEL}."
+                        )
+                    )
+                }
+
+                if (content.isBlank()) {
+                    return@withContext Result.failure(
+                        IllegalStateException("API returned an empty text response for model \"$cleanModel\".")
                     )
                 }
                 Result.success(content)

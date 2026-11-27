@@ -1,6 +1,10 @@
 package com.example.ui.components
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,14 +20,21 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +42,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -42,19 +54,26 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.ai.AiChatMode
 import com.example.ai.AiChatUiState
 import com.example.ai.AiProvider
 import com.example.data.UserSettings
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,13 +85,42 @@ fun AiChatDialog(
     onClearChat: () -> Unit,
     onSelectProvider: (AiProvider) -> Unit,
     onSelectModel: (String) -> Unit,
+    onSendImagePrompt: ((String) -> Unit)? = null,
+    onClearError: (() -> Unit)? = null,
+    onSelectEndpointUrl: ((String) -> Unit)? = null,
+    onSelectApiKey: ((String) -> Unit)? = null,
     onPostToPartyChat: ((String) -> Unit)? = null,
+    onNotify: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
+    var chatMode by remember { mutableStateOf(AiChatMode.TEXT) }
     var showModelPicker by remember { mutableStateOf(false) }
+    var pendingSafImageDataUrl by remember { mutableStateOf<String?>(null) }
+    var galleryFeedback by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val clipboard = LocalClipboardManager.current
+
+    val safCreateLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("image/png")
+    ) { uri ->
+        val dataUrl = pendingSafImageDataUrl
+        pendingSafImageDataUrl = null
+        if (uri != null && dataUrl != null) {
+            scope.launch {
+                ImagePickerUtil.writeDataUrlToUri(context, uri, dataUrl)
+                    .onSuccess {
+                        galleryFeedback = "Saved image to device storage."
+                        onNotify?.invoke("Saved image to device storage.")
+                    }
+                    .onFailure { err ->
+                        galleryFeedback = err.localizedMessage ?: "Could not save image."
+                    }
+            }
+        }
+    }
 
     LaunchedEffect(aiChatState.messages.size) {
         if (aiChatState.messages.isNotEmpty()) {
@@ -118,7 +166,7 @@ fun AiChatDialog(
                             leadingIcon = {
                                 Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
                             },
-                            label = { Text("Model") },
+                            label = { Text("Model & API") },
                             modifier = Modifier.testTag("toggle_ai_model_picker_button")
                         )
                         IconButton(
@@ -138,30 +186,50 @@ fun AiChatDialog(
                     .padding(innerPadding)
             ) {
                 AnimatedVisibility(visible = showModelPicker) {
-                    AiModelSelectorBar(
-                        selectedProvider = userSettings.aiProvider,
-                        selectedModel = userSettings.aiModel,
-                        onSelectProvider = onSelectProvider,
-                        onSelectModel = onSelectModel,
-                        apiKey = userSettings.aiApiKey,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 320.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        AiModelSelectorBar(
+                            selectedProvider = userSettings.aiProvider,
+                            selectedModel = userSettings.aiModel,
+                            onSelectProvider = onSelectProvider,
+                            onSelectModel = onSelectModel,
+                            endpointUrl = userSettings.aiEndpointUrl,
+                            apiKey = userSettings.aiApiKey,
+                            onSelectEndpointUrl = onSelectEndpointUrl,
+                            onSelectApiKey = onSelectApiKey,
+                            showAdvancedApiConfig = onSelectEndpointUrl != null || onSelectApiKey != null,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
                 }
 
-                if (aiChatState.errorMessage != null) {
+                if (galleryFeedback != null) {
                     Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
+                        color = MaterialTheme.colorScheme.primaryContainer,
                         shape = MaterialTheme.shapes.small,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
                     ) {
-                        Text(
-                            text = aiChatState.errorMessage,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(10.dp)
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = galleryFeedback!!,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { galleryFeedback = null }) {
+                                Text("OK")
+                            }
+                        }
                     }
                 }
 
@@ -188,7 +256,7 @@ fun AiChatDialog(
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                text = "Generate NPCs, encounters, lore, loot, or rules advice. Tap Model above anytime to switch between Unorouter models (like k-exaone-2.5:free) and Gemini.",
+                                text = "Use Text mode (k-exaone-2.5:free) for lore, parser-ready NPCs/gear, or <svg> artwork in code — or switch to Image mode (gemini-3-pro:free on Unorouter) to generate downloadable images in chat.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -216,11 +284,11 @@ fun AiChatDialog(
                                         MaterialTheme.colorScheme.surfaceVariant
                                     },
                                     shape = MaterialTheme.shapes.medium,
-                                    modifier = Modifier.fillMaxWidth(0.90f)
+                                    modifier = Modifier.fillMaxWidth(0.92f)
                                 ) {
                                     Column(
                                         modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
@@ -233,24 +301,71 @@ fun AiChatDialog(
                                                 color = MaterialTheme.colorScheme.primary
                                             )
                                             if (!isUser) {
-                                                Row {
-                                                    IconButton(
-                                                        onClick = { clipboard.setText(AnnotatedString(msg.content)) },
-                                                        modifier = Modifier.size(32.dp)
-                                                    ) {
-                                                        Icon(
-                                                            Icons.Default.ContentCopy,
-                                                            contentDescription = "Copy reply",
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                    }
+                                                IconButton(
+                                                    onClick = { clipboard.setText(AnnotatedString(msg.content)) },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.ContentCopy,
+                                                        contentDescription = "Copy reply",
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
                                                 }
                                             }
                                         }
+
+                                        val msgBitmap = remember(msg.imageDataUrl) {
+                                            ImagePickerUtil.decodeDataUrlBitmap(msg.imageDataUrl)
+                                        }
+                                        if (msgBitmap != null && msg.imageDataUrl != null) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(MaterialTheme.shapes.medium)
+                                                    .background(MaterialTheme.colorScheme.surface)
+                                            ) {
+                                                Image(
+                                                    bitmap = msgBitmap.asImageBitmap(),
+                                                    contentDescription = "Generated AI image",
+                                                    contentScale = ContentScale.Fit,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .heightIn(min = 140.dp, max = 300.dp)
+                                                )
+                                            }
+                                            OutlinedButton(
+                                                onClick = {
+                                                    scope.launch {
+                                                        ImagePickerUtil.saveDataUrlToGallery(
+                                                            context = context,
+                                                            dataUrl = msg.imageDataUrl,
+                                                            displayNamePrefix = "storyweaver_ai"
+                                                        ).onSuccess { resMsg ->
+                                                            galleryFeedback = resMsg
+                                                            onNotify?.invoke(resMsg)
+                                                        }.onFailure { err ->
+                                                            if (err.message == "NEEDS_SAF") {
+                                                                pendingSafImageDataUrl = msg.imageDataUrl
+                                                                safCreateLauncher.launch("storyweaver_ai_${System.currentTimeMillis()}.png")
+                                                            } else {
+                                                                galleryFeedback = err.localizedMessage ?: "Failed to save to gallery."
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier.testTag("download_chat_image_button_${msg.id}")
+                                            ) {
+                                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("Download to Gallery")
+                                            }
+                                        }
+
                                         Text(
                                             text = msg.content,
                                             style = MaterialTheme.typography.bodyMedium
                                         )
+
                                         if (!isUser && onPostToPartyChat != null) {
                                             TextButton(
                                                 onClick = { onPostToPartyChat(msg.content) },
@@ -278,9 +393,45 @@ fun AiChatDialog(
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Text(
-                            text = "Thinking with ${userSettings.aiModel}...",
+                            text = if (chatMode == AiChatMode.IMAGE) {
+                                "Generating image with ${userSettings.aiModel}..."
+                            } else {
+                                "Thinking with ${userSettings.aiModel}..."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (onSendImagePrompt != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilterChip(
+                            selected = chatMode == AiChatMode.TEXT,
+                            onClick = { chatMode = AiChatMode.TEXT },
+                            leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            label = { Text("Text") },
+                            modifier = Modifier.testTag("ai_chat_mode_text")
+                        )
+                        FilterChip(
+                            selected = chatMode == AiChatMode.IMAGE,
+                            onClick = { chatMode = AiChatMode.IMAGE },
+                            leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            label = { Text("Image") },
+                            modifier = Modifier.testTag("ai_chat_mode_image")
+                        )
+                        Text(
+                            text = if (chatMode == AiChatMode.IMAGE) "Image API mode" else "Text / SVG code mode",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -295,7 +446,15 @@ fun AiChatDialog(
                     OutlinedTextField(
                         value = draft,
                         onValueChange = { draft = it },
-                        placeholder = { Text("Ask AI anything...") },
+                        placeholder = {
+                            Text(
+                                if (chatMode == AiChatMode.IMAGE) {
+                                    "Describe an image to generate..."
+                                } else {
+                                    "Ask AI or request <svg> art in code..."
+                                }
+                            )
+                        },
                         maxLines = 4,
                         modifier = Modifier
                             .weight(1f)
@@ -305,7 +464,11 @@ fun AiChatDialog(
                         onClick = {
                             val text = draft.trim()
                             if (text.isNotEmpty()) {
-                                onSendMessage(text)
+                                if (chatMode == AiChatMode.IMAGE && onSendImagePrompt != null) {
+                                    onSendImagePrompt(text)
+                                } else {
+                                    onSendMessage(text)
+                                }
                                 draft = ""
                             }
                         },
@@ -314,10 +477,52 @@ fun AiChatDialog(
                             .heightIn(min = 48.dp)
                             .testTag("ai_chat_send_button")
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send to AI")
+                        Icon(
+                            imageVector = if (chatMode == AiChatMode.IMAGE) Icons.Default.Image else Icons.AutoMirrored.Filled.Send,
+                            contentDescription = if (chatMode == AiChatMode.IMAGE) "Generate image" else "Send to AI"
+                        )
                     }
                 }
             }
         }
+    }
+
+    if (aiChatState.errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { onClearError?.invoke() },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.ErrorOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Model Error") },
+            text = {
+                Text(
+                    text = aiChatState.errorMessage,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onClearError?.invoke()
+                        showModelPicker = true
+                    },
+                    modifier = Modifier.testTag("ai_chat_error_switch_model_button")
+                ) {
+                    Text("Change Model")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { onClearError?.invoke() },
+                    modifier = Modifier.testTag("ai_chat_error_dismiss_button")
+                ) {
+                    Text("Dismiss")
+                }
+            }
+        )
     }
 }

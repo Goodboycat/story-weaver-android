@@ -345,6 +345,9 @@ fun DashboardScreen(
             onSelectAiModel = { viewModel.setAiModel(it) },
             onSelectAiEndpointUrl = { viewModel.setAiEndpointUrl(it) },
             onSelectAiApiKey = { viewModel.setAiApiKey(it) },
+            onSelectAiImageEndpointUrl = { viewModel.setAiImageEndpointUrl(it) },
+            onSelectAiImageModel = { viewModel.setAiImageModel(it) },
+            onSelectAiImageApiKey = { viewModel.setAiImageApiKey(it) },
             onSignOut = {
                 showSettings = false
                 onSignOut()
