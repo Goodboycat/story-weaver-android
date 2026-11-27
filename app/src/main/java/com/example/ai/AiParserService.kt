@@ -12,6 +12,7 @@ import com.example.data.MapPaintEngine
 import com.example.data.MapPaintJsonParser
 import com.example.data.MapPaintOutcome
 import com.example.data.MapToken
+import com.example.data.MissionEntry
 import com.example.data.PowerEntry
 import com.example.data.Story
 import com.example.data.WorldItem
@@ -100,6 +101,7 @@ object AiPromptTemplates {
         appendLine("  LVL: <integer> | HP: <integer> | AC: <integer>")
         appendLine("  Emoji: <single fitting Unicode emoji>")
         appendLine("  Powers: <Power Name> (<Cost>) - <Full Description> [#tag1, #tag2], <Next Power...>")
+        appendLine("  Missions: <Mission Title> - <Objective details>, <Another Quest> (completed) - <Details>")
         appendLine("  Gear: <comma-separated tools, weapons, armor & equipment>")
         appendLine("  Stats: STR <n>, DEX <n>, CON <n>, INT <n>, WIS <n>, CHA <n>")
         appendLine("- Locations / Powers / Items / Notes (separate multiple cards with a blank line):")
@@ -117,11 +119,13 @@ object AiPromptTemplates {
 
     fun characterPrompt(kind: String): String = """
         Convert the following notes into structured $kind entries for a tabletop RPG.
-        For each entry, extract: Name, Role/Class, Location (locationName), Level, HP, AC, Notes, matching Emoji symbol (avatarEmoji), Stats (STR, DEX, CON, INT, WIS, CHA, plus custom stats), complete Powers (name, cost, description, emoji, tags), and Gear (mapped into inventory AND 12-slot equipment: head, eyes, neck, shoulders, chest, back, wrists, hands, waist, legs, feet, weapon_main).
+        Ignore any conversational filler, greetings, intro sentences (e.g., "Here you have 10 NPCs..."), or sign-offs — ONLY extract actual characters.
+        For each entry, extract: Name, Role/Class, Location (locationName), Level, HP, AC, Notes, matching Emoji symbol (avatarEmoji), Stats (STR, DEX, CON, INT, WIS, CHA, plus custom stats), Missions / Quests (missions: title, status active/completed, description), complete Powers (name, cost, description, emoji, tags), and Gear (mapped into inventory AND 12-slot equipment: head, eyes, neck, shoulders, chest, back, wrists, hands, waist, legs, feet, weapon_main).
     """.trimIndent()
 
     fun worldItemPrompt(category: String): String = """
         Convert the following campaign notes into structured $category cards.
+        Ignore any conversational filler, greetings, intro counts (e.g., "Here are 5 locations..."), or sign-offs.
         For each card, include Title, Subtitle/Tag, matching Emoji symbol (iconEmoji), Tags, and vivid usable tabletop Description.
     """.trimIndent()
 
@@ -192,9 +196,13 @@ class AiParserService {
                             items = Schema.string(),
                             description = "Abilities formatted as 'Name (Cost) - Description [tag1, tag2]'"
                         ),
+                        "missions" to Schema.array(
+                            items = Schema.string(),
+                            description = "Quests or missions formatted as 'Mission Title - Description'"
+                        ),
                         "inventory" to Schema.array(items = Schema.string(), description = "Carried tools, weapons, armor, and items"),
                     ),
-                    optionalProperties = listOf("locationName", "avatarEmoji", "stats", "powers", "inventory")
+                    optionalProperties = listOf("locationName", "avatarEmoji", "stats", "powers", "missions", "inventory")
                 )
             )
         )
@@ -353,8 +361,9 @@ class AiParserService {
                 val sys = """
                     You are a strict JSON parser for a tabletop RPG app.
                     ${AiPromptTemplates.parserSystemInstructions(kind)}
+                    CRITICAL: Ignore conversational wrapper prose, greetings, intro lines (such as "Here you have 10 NPCs...", "Sure! Here are..."), horizontal dividers, or sign-offs ("Let me know if you need more"). NEVER create an entry out of intro/outro text.
                     Return ONLY a valid JSON object matching this schema (no markdown or extra prose):
-                    {"items":[{"name":"string","roleTitle":"string","locationName":"string","level":1,"hpMax":12,"ac":12,"notes":"string","avatarEmoji":"🛡️","stats":{"STR":10,"DEX":10,"CON":10,"INT":10,"WIS":10,"CHA":10},"powers":[{"name":"string","cost":"string","description":"string","emoji":"✨","tags":["tag1"]}],"inventory":["string"],"equipment":[{"slotKey":"weapon_main","itemName":"string","bonus":"+1 Attack","notes":"string","emoji":"⚔️"}]}]}
+                    {"items":[{"name":"string","roleTitle":"string","locationName":"string","level":1,"hpMax":12,"ac":12,"notes":"string","avatarEmoji":"🛡️","stats":{"STR":10,"DEX":10,"CON":10,"INT":10,"WIS":10,"CHA":10},"powers":[{"name":"string","cost":"string","description":"string","emoji":"✨","tags":["tag1"]}],"missions":[{"title":"string","status":"active","description":"string"}],"inventory":["string"],"equipment":[{"slotKey":"weapon_main","itemName":"string","bonus":"+1 Attack","notes":"string","emoji":"⚔️"}]}]}
                 """.trimIndent()
                 val userPrompt = "${AiPromptTemplates.characterPrompt(kind)}\n\nCampaign: ${story.title} (${story.systemName})\n\nInput:\n$rawText"
                 val fallback = if (provider == AiProvider.OPENROUTER) {
@@ -391,9 +400,10 @@ class AiParserService {
         val root = JSONObject(jsonText)
         val arr = root.getJSONArray("items")
         val rawSectionsFallback = CharacterParserHelpers.extractFieldSections(rawText)
-        val parsed = (0 until arr.length()).map { i ->
+        val parsed = (0 until arr.length()).mapNotNull { i ->
             val o = arr.getJSONObject(i)
             val name = o.optString("name", "Unnamed").trim().ifBlank { "Unnamed" }
+            if (CharacterParserHelpers.isConversationalFillerTitle(name)) return@mapNotNull null
             val role = o.optString("roleTitle", kind.replaceFirstChar { it.uppercase() })
             val locationName = o.optString("locationName", "")
                 .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
@@ -548,6 +558,35 @@ class AiParserService {
                 }
             }
 
+            // Parse missions / quests
+            val missionsArr = o.optJSONArray("missions") ?: o.optJSONArray("quests")
+            val missionsList = mutableListOf<MissionEntry>()
+            if (missionsArr != null) {
+                for (idx in 0 until missionsArr.length()) {
+                    val mItem = missionsArr.opt(idx)
+                    if (mItem is JSONObject) {
+                        val mTitle = mItem.optString("title").ifBlank { mItem.optString("name") }.trim()
+                        if (mTitle.isNotBlank()) {
+                            val rawStatus = mItem.optString("status", "active").trim().lowercase()
+                            val cleanStatus = if (rawStatus in setOf("completed", "done", "finished")) "completed" else "active"
+                            val mDesc = mItem.optString("description", "").trim()
+                            missionsList += MissionEntry(
+                                id = "mis_${UUID.randomUUID().toString().take(8)}",
+                                title = mTitle.take(160),
+                                status = cleanStatus,
+                                description = mDesc.take(600),
+                            )
+                        }
+                    } else {
+                        val mRaw = missionsArr.optString(idx).trim()
+                        CharacterParserHelpers.parseSingleMissionEntry(mRaw)?.let { missionsList += it }
+                    }
+                }
+            }
+            if (missionsList.isEmpty() && rawSectionsFallback["missions"] != null && arr.length() == 1) {
+                missionsList += CharacterParserHelpers.parseMissionEntries(rawSectionsFallback["missions"])
+            }
+
             Character(
                 storyId = story.id,
                 gmUserId = story.gmUserId,
@@ -564,6 +603,7 @@ class AiParserService {
                 ac = ac,
                 notes = notes.take(5000),
                 powersJson = JsonCodecs.encodePowers(powersList),
+                missionsJson = JsonCodecs.encodeMissions(missionsList),
                 inventoryJson = JsonCodecs.encodeInventory(invList),
                 equipmentJson = JsonCodecs.encodeEquipment(equipmentMap),
                 statsJson = JsonCodecs.encodeStats(parsedStats),
@@ -596,6 +636,7 @@ class AiParserService {
                 val sys = """
                     You are a strict JSON parser for a tabletop RPG app.
                     ${AiPromptTemplates.parserSystemInstructions(category)}
+                    CRITICAL: Ignore conversational wrapper prose, greetings, intro lines (such as "Here you have 10...", "Sure! Here are..."), horizontal dividers, or sign-offs ("Let me know if you need more"). NEVER create a card out of intro/outro text.
                     Return ONLY a valid JSON object matching this schema (no markdown or extra prose):
                     {"items":[{"title":"string","subtitle":"string","description":"string","iconEmoji":"📜","tags":["tag1","tag2"]}]}
                 """.trimIndent()
@@ -633,9 +674,10 @@ class AiParserService {
 
         val root = JSONObject(jsonText)
         val arr = root.getJSONArray("items")
-        val parsed = (0 until arr.length()).map { i ->
+        val parsed = (0 until arr.length()).mapNotNull { i ->
             val o = arr.getJSONObject(i)
             val title = o.optString("title", "Untitled").trim().ifBlank { "Untitled" }
+            if (CharacterParserHelpers.isConversationalFillerTitle(title)) return@mapNotNull null
             val subtitle = o.optString("subtitle", category.replaceFirstChar { it.uppercase() })
             val desc = o.optString("description", "")
             val fallbackEmoji = when (category) {
@@ -770,7 +812,10 @@ class AiParserService {
         story: Story,
         ownerId: String,
     ): List<Character> {
-        val blocks = rawText.trim().split(Regex("\\n\\s*\\n+")).filter { it.isNotBlank() }
+        val blocks = rawText.trim()
+            .split(Regex("""\n\s*(?:\n+|[-*_]{3,}\s*\n+)"""))
+            .map { CharacterParserHelpers.stripLeadingFillerLines(it) }
+            .filter { it.isNotBlank() && !CharacterParserHelpers.isConversationalFillerBlock(it) }
         return blocks.map { block ->
             CharacterParserHelpers.parseSingleCharacterBlockRegex(block, kind, story, ownerId)
         }
@@ -793,18 +838,22 @@ class AiParserService {
         ownerId: String,
         startOrder: Int,
     ): List<WorldItem> {
-        val blocks = rawText.trim().split(Regex("\\n\\s*\\n+")).filter { it.isNotBlank() }
+        val blocks = rawText.trim()
+            .split(Regex("""\n\s*(?:\n+|[-*_]{3,}\s*\n+)"""))
+            .map { CharacterParserHelpers.stripLeadingFillerLines(it) }
+            .filter { it.isNotBlank() && !CharacterParserHelpers.isConversationalFillerBlock(it) }
         val fallbackEmoji = when (category) {
             "location" -> "🏰"
             "power" -> "✨"
             "item" -> "⚔️"
             else -> "📜"
         }
-        return blocks.mapIndexed { idx, block ->
+        return blocks.mapIndexedNotNull { idx, block ->
             val lines = block.lines().map { it.trim() }.filter { it.isNotBlank() }
-            val rawFirst = lines.firstOrNull()?.removePrefix("#")?.removePrefix("-")?.removePrefix("*")?.trim() ?: "Entry"
+            val rawFirst = lines.firstOrNull()?.removePrefix("#")?.removePrefix("-")?.removePrefix("*")?.trim() ?: return@mapIndexedNotNull null
             val leadingEmoji = EmojiHelper.extractLeadingEmoji(rawFirst)
             val title = EmojiHelper.stripLeadingEmoji(rawFirst).ifBlank { rawFirst }.take(120)
+            if (CharacterParserHelpers.isConversationalFillerTitle(title)) return@mapIndexedNotNull null
             val subtitleMatch = Regex("""Subtitle[:\s]+([^\n]+)""", RegexOption.IGNORE_CASE).find(block)
             val tagsMatch = Regex("""Tags?[:\s]+([^\n]+)""", RegexOption.IGNORE_CASE).find(block)
             val emojiMatch = Regex("""Emoji[:\s]+([^\s\n]+)""", RegexOption.IGNORE_CASE).find(block)

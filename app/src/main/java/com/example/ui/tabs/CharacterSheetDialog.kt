@@ -688,7 +688,16 @@ fun CharacterSheetDialog(
                                                 }
                                             }
                                         )
-                                        Text(m.title, modifier = Modifier.weight(1f))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(m.title, style = MaterialTheme.typography.bodyMedium)
+                                            if (m.description.isNotBlank()) {
+                                                Text(
+                                                    text = m.description,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
                                         if (canEdit) {
                                             IconButton(onClick = {
                                                 missions = missions.filterNot { it.id == m.id }

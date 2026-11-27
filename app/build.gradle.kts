@@ -63,7 +63,21 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      all { testTask ->
+        val m2Repo = file("${System.getProperty("user.home")}/.m2/repository")
+        val cachedJar = file(
+          "${m2Repo}/org/robolectric/android-all-instrumented/16-robolectric-13921718-i7/android-all-instrumented-16-robolectric-13921718-i7.jar"
+        )
+        if (cachedJar.exists()) {
+          testTask.systemProperty("robolectric.dependency.repo.id", "localM2")
+          testTask.systemProperty("robolectric.dependency.repo.url", m2Repo.toURI().toString())
+        }
+      }
+    }
+  }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true

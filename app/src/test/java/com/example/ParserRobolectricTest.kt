@@ -147,4 +147,75 @@ class ParserRobolectricTest {
         assertEquals(ref.description, restored?.description)
         assertEquals(listOf("Radiant", "Melee", "Burst"), restored?.tags)
     }
+
+    @Test
+    fun `npc mission parser extracts active and completed missions and ignores conversational filler`() {
+        val rawAiReply = """
+            Sure! Here you have 2 NPCs for your campaign:
+
+            ---
+
+            🧙 Elara Vance
+            Class: Arcane Archivist
+            LVL: 4 | HP: 28 | AC: 13
+            Location: Starfall Library
+            Missions: Recover the Sun Shard - Retrieve the ruby from the sunken vault, Seal the Rift (completed) - Close the cellar portal before dawn
+            Powers: Arcane Bolt (1 MP) - Deal 2d6 force damage [arcane, ranged]
+
+            Here are some extra notes:
+            🛡️ Bram Ironfoot
+            Class: Gate Warden
+            HP: 42 | AC: 17
+            Quests:
+            1. Patrol the North Bridge - Watch for goblin scouts
+            2. Deliver the Royal Seal [done] - Hand packet to Captain Vex
+
+            Let me know if you want me to adjust any stats or add more NPCs!
+        """.trimIndent()
+
+        val story = Story(id = "s1", gmUserId = "gm1", memberUids = listOf("gm1"))
+        val parser = com.example.ai.AiParserService()
+        val npcs = parser.parseCharactersRegex(rawAiReply, "npc", story, "gm1")
+
+        assertEquals(2, npcs.size)
+        assertEquals("Elara Vance", npcs[0].name)
+        assertEquals("Bram Ironfoot", npcs[1].name)
+
+        val elaraMissions = JsonCodecs.decodeMissions(npcs[0].missionsJson)
+        assertEquals(2, elaraMissions.size)
+        assertEquals("Recover the Sun Shard", elaraMissions[0].title)
+        assertEquals("active", elaraMissions[0].status)
+        assertEquals("Retrieve the ruby from the sunken vault", elaraMissions[0].description)
+        assertEquals("Seal the Rift", elaraMissions[1].title)
+        assertEquals("completed", elaraMissions[1].status)
+
+        val bramMissions = JsonCodecs.decodeMissions(npcs[1].missionsJson)
+        assertEquals(2, bramMissions.size)
+        assertEquals("Patrol the North Bridge", bramMissions[0].title)
+        assertEquals("active", bramMissions[0].status)
+        assertEquals("Deliver the Royal Seal", bramMissions[1].title)
+        assertEquals("completed", bramMissions[1].status)
+
+        // Verify re-parse notes also merges missions cleanly
+        val updatedNotes = npcs[0].copy(
+            notes = npcs[0].notes + "\nMissions: Escort the Envoy - Reach Capital safely"
+        )
+        val merged = CharacterParserHelpers.applyParsedNotesToCharacter(updatedNotes, story)
+        assertTrue(JsonCodecs.decodeMissions(merged.missionsJson).any { it.title == "Escort the Envoy" })
+
+        // Verify world item regex parser ignores conversational intro & outro filler too
+        val rawLocs = """
+            Here you have 1 location for your campaign:
+
+            # 🏰 Starfall Library
+            Subtitle: Ancient Archive
+            Tags: arcane, research
+            A towering marble spire filled with star-charts.
+
+            Feel free to ask if you need anything else!
+        """.trimIndent()
+        val locs = parser.parseWorldItemsRegex(rawLocs, "location", story, "gm1", 0)
+        assertEquals(1, locs.size)
+        assertEquals("Starfall Library", locs.first().title)
+    }
 }

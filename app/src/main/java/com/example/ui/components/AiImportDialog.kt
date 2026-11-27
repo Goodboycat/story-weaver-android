@@ -152,7 +152,7 @@ fun AiImportDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "Chat with ${userSettings.aiModel} to brainstorm or generate entries, then tap \"Use in Parser\" on any reply to import it.",
+                                text = "Chat with ${userSettings.aiModel} to brainstorm or generate entries, then tap \"Move to AI Parser\" on any reply to review and import it.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(10.dp)
@@ -185,27 +185,14 @@ fun AiImportDialog(
                                         )
                                         Text(msg.content, style = MaterialTheme.typography.bodySmall)
                                         if (!isUser) {
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            OutlinedButton(
+                                                onClick = {
+                                                    inputText = msg.content
+                                                    mode = 0
+                                                },
+                                                modifier = Modifier.testTag("use_ai_reply_in_parser_button")
                                             ) {
-                                                TextButton(
-                                                    onClick = {
-                                                        inputText = msg.content
-                                                        mode = 0
-                                                    },
-                                                    modifier = Modifier.testTag("use_ai_reply_in_parser_button")
-                                                ) {
-                                                    Text("Use in Parser")
-                                                }
-                                                TextButton(
-                                                    onClick = {
-                                                        inputText = msg.content
-                                                        onImport(msg.content, false)
-                                                    },
-                                                    enabled = aiState !is AiUiState.Loading
-                                                ) {
-                                                    Text("Import Now")
-                                                }
+                                                Text("Move to AI Parser")
                                             }
                                         }
                                     }

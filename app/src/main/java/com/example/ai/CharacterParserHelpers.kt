@@ -5,6 +5,7 @@ import com.example.data.EquipmentSlot
 import com.example.data.EquipmentSlotItem
 import com.example.data.InventoryEntry
 import com.example.data.JsonCodecs
+import com.example.data.MissionEntry
 import com.example.data.PowerEntry
 import com.example.data.Story
 import com.example.data.WorldItem
@@ -29,7 +30,7 @@ data class ParsedGearItem(
 object CharacterParserHelpers {
 
     private val sectionHeaderRegex = Regex(
-        """^\s*(class|role|species|ancestry|type|lvl|level|cr|hp|ac|emoji|location|place|region|home|settlement|area|powers|power|abilities|ability|spells|gear|equipment|inventory|items|loadout|stats|stat|attributes|campaign|world|description|lore|notes|backstory|missions|quests)\s*:\s*(.*)$""",
+        """^\s*(class|role|species|ancestry|type|lvl|level|cr|hp|ac|emoji|location|place|region|home|settlement|area|powers|power|abilities|ability|spells|gear|equipment|inventory|items|loadout|stats|stat|attributes|campaign|world|description|lore|notes|backstory|mission|missions|quest|quests|objective|objectives)\s*:\s*(.*)$""",
         RegexOption.IGNORE_CASE
     )
 
@@ -52,6 +53,7 @@ object CharacterParserHelpers {
         "powers", "power", "abilities", "ability", "spells" -> "powers"
         "gear", "equipment", "inventory", "items", "loadout" -> "gear"
         "stats", "stat", "attributes" -> "stats"
+        "mission", "missions", "quest", "quests", "objective", "objectives" -> "missions"
         "campaign", "world" -> "campaign"
         else -> "notes"
     }
@@ -99,13 +101,20 @@ object CharacterParserHelpers {
                 } else {
                     val key = canonicalSection(rawHeader)
                     val sb = sections.getOrPut(key) { StringBuilder() }
-                    if (sb.isNotEmpty() && rest.isNotEmpty()) sb.append(" ")
+                    if (sb.isNotEmpty() && rest.isNotEmpty()) sb.append("\n")
                     sb.append(rest)
                     activeKey = key
                 }
             } else if (activeKey != null) {
                 val sb = sections[activeKey]!!
-                if (sb.isNotEmpty()) sb.append(" ")
+                if (sb.isNotEmpty()) {
+                    val isListContinuation = activeKey == "missions" ||
+                        trimmed.startsWith("-") ||
+                        trimmed.startsWith("*") ||
+                        trimmed.startsWith("•") ||
+                        Regex("""^\d+[.)]\s+""").containsMatchIn(trimmed)
+                    sb.append(if (isListContinuation) "\n" else " ")
+                }
                 sb.append(trimmed)
             }
         }
@@ -241,6 +250,125 @@ object CharacterParserHelpers {
             emoji = emoji,
             tags = finalTags,
         )
+    }
+
+    fun parseMissionEntries(rawMissions: String?): List<MissionEntry> {
+        val tokens = splitListTokens(rawMissions.orEmpty())
+        return tokens.mapNotNull { token -> parseSingleMissionEntry(token) }
+    }
+
+    fun parseSingleMissionEntry(rawToken: String): MissionEntry? {
+        var working = rawToken.trim()
+            .replace(Regex("""^\d+[.)]\s*"""), "")
+            .removePrefix("[ ]")
+            .removePrefix("[x]")
+            .removePrefix("[X]")
+            .trim()
+        if (working.isEmpty() || working.equals("none", ignoreCase = true) || working.equals("n/a", ignoreCase = true)) {
+            return null
+        }
+
+        val leadingEmoji = EmojiHelper.extractLeadingEmoji(working)
+        var completed = leadingEmoji == "✅" || rawToken.trim().startsWith("[x]", ignoreCase = true)
+        if (leadingEmoji != null) {
+            working = working.removePrefix(leadingEmoji).trim()
+        }
+
+        val statusBracket = Regex("""\[(completed|done|finished|active|pending|open)]""", RegexOption.IGNORE_CASE).find(working)
+        if (statusBracket != null) {
+            val tag = statusBracket.groupValues[1].lowercase()
+            if (tag in setOf("completed", "done", "finished")) completed = true
+            working = working.removeRange(statusBracket.range).replace(Regex("\\s+"), " ").trim()
+        }
+
+        val statusParen = Regex("""\((completed|done|finished|active|pending|open)\)""", RegexOption.IGNORE_CASE).find(working)
+        if (statusParen != null) {
+            val tag = statusParen.groupValues[1].lowercase()
+            if (tag in setOf("completed", "done", "finished")) completed = true
+            working = working.removeRange(statusParen.range).replace(Regex("\\s+"), " ").trim()
+        }
+
+        var description = ""
+        val dashIdx = working.indexOf(" - ").takeIf { it > 0 } ?: working.indexOf(" — ").takeIf { it > 0 }
+        if (dashIdx != null) {
+            description = working.substring(dashIdx + 3).trim()
+            working = working.substring(0, dashIdx).trim()
+        }
+
+        val cleanTitle = working.trim()
+        if (cleanTitle.isBlank()) return null
+
+        return MissionEntry(
+            id = "mis_${UUID.randomUUID().toString().take(8)}",
+            title = cleanTitle.take(160),
+            status = if (completed) "completed" else "active",
+            description = description.take(600),
+        )
+    }
+
+    private val conversationalLineRegex = listOf(
+        Regex("""^(?:sure|certainly|of course|alright|okay|ok|great|gladly|absolutely)[!,.:\s]*.*$""", RegexOption.IGNORE_CASE),
+        Regex("""^(?:here\s+(?:you\s+have|you\s+go|are|is|'s)\b.*|below\s+(?:are|is)\b.*|following\s+(?:are|is)\b.*)$""", RegexOption.IGNORE_CASE),
+        Regex("""^(?:let me know|feel free|hope this helps|if you(?:'d| would)? like|would you like|do you want|i (?:can|have created|generated|made)\b).*$""", RegexOption.IGNORE_CASE),
+        Regex("""^[-*_=#]{3,}\s*$"""),
+    )
+
+    private val fillerTitleKeywordsRegex = Regex(
+        """\b(?:here\s+(?:you\s+have|you\s+go|are|is)|let me know|feel free|hope this helps|for your campaign|below are)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    fun isConversationalFillerLine(line: String): Boolean {
+        val clean = line.trim().removePrefix("#").removePrefix("*").removePrefix("-").trim()
+        if (clean.isEmpty()) return true
+        if (sectionHeaderRegex.matches(clean)) return false
+        if (Regex("""(?:HP|AC|LVL|Level|CR)[:\s]+\d+""", RegexOption.IGNORE_CASE).containsMatchIn(clean)) return false
+        if (conversationalLineRegex.any { it.matches(clean) }) return true
+        if (clean.endsWith(":") && fillerTitleKeywordsRegex.containsMatchIn(clean)) return true
+        return false
+    }
+
+    fun isConversationalFillerBlock(block: String): Boolean {
+        val lines = block.lines().map { it.trim() }.filter { it.isNotBlank() }
+        if (lines.isEmpty()) return true
+        val hasStructuredFields = lines.any { line ->
+            sectionHeaderRegex.matches(line) ||
+                Regex("""(?:HP|AC|LVL|Level|CR)[:\s]+\d+""", RegexOption.IGNORE_CASE).containsMatchIn(line)
+        }
+        if (hasStructuredFields) {
+            return stripLeadingFillerLines(block).isBlank()
+        }
+        return lines.all { isConversationalFillerLine(it) } ||
+            fillerTitleKeywordsRegex.containsMatchIn(lines.first())
+    }
+
+    fun stripLeadingFillerLines(block: String): String {
+        val lines = block.lines()
+        var idx = 0
+        while (idx < lines.size) {
+            val trimmed = lines[idx].trim()
+            if (trimmed.isEmpty() || isConversationalFillerLine(trimmed)) {
+                idx++
+            } else {
+                break
+            }
+        }
+        var end = lines.size
+        while (end > idx) {
+            val trimmed = lines[end - 1].trim()
+            if (trimmed.isEmpty() || isConversationalFillerLine(trimmed)) {
+                end--
+            } else {
+                break
+            }
+        }
+        return if (idx >= end) "" else lines.subList(idx, end).joinToString("\n").trim()
+    }
+
+    fun isConversationalFillerTitle(title: String): Boolean {
+        val clean = title.trim()
+        if (clean.isBlank()) return true
+        return isConversationalFillerLine(clean) || fillerTitleKeywordsRegex.containsMatchIn(clean)
     }
 
     fun parseGearEntries(rawGear: String?): List<ParsedGearItem> {
@@ -386,7 +514,8 @@ object CharacterParserHelpers {
         story: Story,
         ownerId: String,
     ): Character {
-        val lines = block.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val cleanBlock = stripLeadingFillerLines(block).ifBlank { block }
+        val lines = cleanBlock.lines().map { it.trim() }.filter { it.isNotBlank() }
         val firstLineRaw = lines.firstOrNull()
             ?.removePrefix("#")?.removePrefix("-")?.removePrefix("*")?.trim()
             ?: "Hero"
@@ -394,10 +523,10 @@ object CharacterParserHelpers {
         val firstLine = EmojiHelper.stripLeadingEmoji(firstLineRaw)
         val name = firstLine.substringBefore("(").substringBefore(" - ").trim().ifBlank { "Hero" }
 
-        val sections = extractFieldSections(block)
-        val hpMatch = Regex("""HP[:\s]+(\d+)""", RegexOption.IGNORE_CASE).find(block)
-        val acMatch = Regex("""AC[:\s]+(\d+)""", RegexOption.IGNORE_CASE).find(block)
-        val lvlMatch = Regex("""(?:LVL|Level|CR)[:\s]+(\d+)""", RegexOption.IGNORE_CASE).find(block)
+        val sections = extractFieldSections(cleanBlock)
+        val hpMatch = Regex("""HP[:\s]+(\d+)""", RegexOption.IGNORE_CASE).find(cleanBlock)
+        val acMatch = Regex("""AC[:\s]+(\d+)""", RegexOption.IGNORE_CASE).find(cleanBlock)
+        val lvlMatch = Regex("""(?:LVL|Level|CR)[:\s]+(\d+)""", RegexOption.IGNORE_CASE).find(cleanBlock)
 
         val hp = sections["hp"]?.let { Regex("""\d+""").find(it)?.value?.toLongOrNull() }
             ?: hpMatch?.groupValues?.get(1)?.toLongOrNull()
@@ -417,9 +546,10 @@ object CharacterParserHelpers {
             ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
         val emoji = emojiCandidate
             ?: leadingEmoji
-            ?: EmojiHelper.suggestEmoji(block, if (kind == "monster") "👹" else "🛡️")
+            ?: EmojiHelper.suggestEmoji(cleanBlock, if (kind == "monster") "👹" else "🛡️")
 
         val powersList = parsePowerEntries(sections["powers"])
+        val missionsList = parseMissionEntries(sections["missions"])
         val gearEntries = parseGearEntries(sections["gear"])
         val equipmentMap = buildEquipmentMap(gearEntries)
         val invList = gearEntries.map { g ->
@@ -457,8 +587,9 @@ object CharacterParserHelpers {
             hpCurrent = hp,
             hpMax = hp,
             ac = ac,
-            notes = block.take(5000),
+            notes = cleanBlock.take(5000),
             powersJson = JsonCodecs.encodePowers(powersList),
+            missionsJson = JsonCodecs.encodeMissions(missionsList),
             inventoryJson = JsonCodecs.encodeInventory(invList),
             equipmentJson = JsonCodecs.encodeEquipment(equipmentMap),
             statsJson = JsonCodecs.encodeStats(parsedStats),
@@ -511,6 +642,14 @@ object CharacterParserHelpers {
             }
         }
 
+        val existingMissions = JsonCodecs.decodeMissions(current.missionsJson).toMutableList()
+        val existingMissionKeys = existingMissions.map { it.title.trim().lowercase() }.toMutableSet()
+        JsonCodecs.decodeMissions(parsed.missionsJson).forEach { m ->
+            if (existingMissionKeys.add(m.title.trim().lowercase())) {
+                existingMissions += m
+            }
+        }
+
         val nextRole = if (current.roleTitle.isBlank()) parsed.roleTitle else current.roleTitle
         val nextLoc = current.locationName.ifBlank { parsed.locationName }
 
@@ -524,6 +663,7 @@ object CharacterParserHelpers {
             statsJson = JsonCodecs.encodeStats(existingStats),
             equipmentJson = JsonCodecs.encodeEquipment(existingEquipment),
             powersJson = JsonCodecs.encodePowers(existingPowers),
+            missionsJson = JsonCodecs.encodeMissions(existingMissions),
             inventoryJson = JsonCodecs.encodeInventory(existingInv),
         )
     }
