@@ -82,6 +82,7 @@ service cloud.firestore {
         data.avatarEmoji is string && data.avatarEmoji.size() <= 16 &&
         (!('avatarUrl' in data) || data.avatarUrl == null || (data.avatarUrl is string && data.avatarUrl.size() <= 250000)) &&
         data.roleTitle is string && data.roleTitle.size() <= 100 &&
+        (!('locationName' in data) || (data.locationName is string && data.locationName.size() <= 120)) &&
         data.level is int && data.level >= 0 && data.level <= 999 &&
         data.hpCurrent is int && data.hpCurrent >= -999 && data.hpCurrent <= 99999 &&
         data.hpMax is int && data.hpMax >= 0 && data.hpMax <= 99999 &&
@@ -101,7 +102,7 @@ service cloud.firestore {
         data.gmUserId is string && data.gmUserId.size() >= 1 && data.gmUserId.size() <= 128 &&
         data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
         isValidMemberList(data.memberUids) &&
-        data.category in ['location', 'power', 'note'] &&
+        data.category in ['location', 'power', 'note', 'item'] &&
         data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
         data.subtitle is string && data.subtitle.size() <= 120 &&
         data.description is string && data.description.size() <= 10000 &&
@@ -134,7 +135,23 @@ service cloud.firestore {
         data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 80 &&
         data.senderRole is string && data.senderRole.size() >= 1 && data.senderRole.size() <= 30 &&
         data.body is string && data.body.size() >= 1 && data.body.size() <= 2000 &&
-        data.messageType in ['chat', 'roll', 'system'] &&
+        data.messageType in ['chat', 'roll', 'system', 'pin', 'ref'] &&
+        (!('replyToMessageId' in data) || (data.replyToMessageId is string && data.replyToMessageId.size() <= 128)) &&
+        (!('replyToSenderName' in data) || (data.replyToSenderName is string && data.replyToSenderName.size() <= 80)) &&
+        (!('replyToSnippet' in data) || (data.replyToSnippet is string && data.replyToSnippet.size() <= 240)) &&
+        (!('refType' in data) || (data.refType is string && data.refType.size() <= 24)) &&
+        (!('refId' in data) || (data.refId is string && data.refId.size() <= 128)) &&
+        (!('refTitle' in data) || (data.refTitle is string && data.refTitle.size() <= 140)) &&
+        (!('refSubtitle' in data) || (data.refSubtitle is string && data.refSubtitle.size() <= 160)) &&
+        (!('refEmoji' in data) || (data.refEmoji is string && data.refEmoji.size() <= 16)) &&
+        (!('refDescription' in data) || (data.refDescription is string && data.refDescription.size() <= 2000)) &&
+        (!('refTagsJson' in data) || (data.refTagsJson is string && data.refTagsJson.size() <= 1000)) &&
+        (!('pinned' in data) || (data.pinned is bool)) &&
+        (!('pinnedBy' in data) || (data.pinnedBy is string && data.pinnedBy.size() <= 128)) &&
+        (!('targetUserId' in data) || (data.targetUserId is string && data.targetUserId.size() <= 128)) &&
+        (!('targetCharacterId' in data) || (data.targetCharacterId is string && data.targetCharacterId.size() <= 128)) &&
+        (!('targetCharacterName' in data) || (data.targetCharacterName is string && data.targetCharacterName.size() <= 100)) &&
+        (!('reactionsJson' in data) || (data.reactionsJson is string && data.reactionsJson.size() <= 20000)) &&
         isValidTimestamp(data.createdAt);
     }
 
@@ -261,7 +278,7 @@ service cloud.firestore {
           ]) &&
           incoming().keys().hasOnly([
             'storyId', 'gmUserId', 'ownerId', 'memberUids', 'kind', 'name', 'avatarEmoji',
-            'avatarUrl', 'roleTitle', 'level', 'hpCurrent', 'hpMax', 'ac', 'notes',
+            'avatarUrl', 'roleTitle', 'locationName', 'level', 'hpCurrent', 'hpMax', 'ac', 'notes',
             'inventoryJson', 'missionsJson', 'powersJson', 'equipmentJson', 'statsJson',
             'createdAt', 'updatedAt'
           ]);
@@ -275,7 +292,7 @@ service cloud.firestore {
           incoming().createdAt == existing().createdAt &&
           (existing().ownerId == request.auth.uid || existing().gmUserId == request.auth.uid) &&
           incoming().diff(existing()).affectedKeys().hasOnly([
-            'kind', 'name', 'avatarEmoji', 'avatarUrl', 'roleTitle', 'level',
+            'kind', 'name', 'avatarEmoji', 'avatarUrl', 'roleTitle', 'locationName', 'level',
             'hpCurrent', 'hpMax', 'ac', 'notes', 'inventoryJson', 'missionsJson',
             'powersJson', 'equipmentJson', 'statsJson', 'memberUids', 'updatedAt'
           ]);
@@ -376,14 +393,38 @@ service cloud.firestore {
           ]) &&
           incoming().keys().hasOnly([
             'storyId', 'gmUserId', 'memberUids', 'senderId', 'senderName',
-            'senderRole', 'body', 'messageType', 'createdAt'
+            'senderRole', 'body', 'messageType',
+            'replyToMessageId', 'replyToSenderName', 'replyToSnippet',
+            'refType', 'refId', 'refTitle', 'refSubtitle', 'refEmoji',
+            'refDescription', 'refTagsJson',
+            'pinned', 'pinnedBy', 'targetUserId', 'targetCharacterId', 'targetCharacterName',
+            'reactionsJson',
+            'createdAt'
           ]);
         allow update: if isSignedIn() &&
           isValidId(storyId) &&
           isValidId(messageId) &&
           isValidChatMessage(incoming()) &&
-          existing().gmUserId == request.auth.uid &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+          incoming().storyId == existing().storyId &&
+          incoming().gmUserId == existing().gmUserId &&
+          incoming().senderId == existing().senderId &&
+          incoming().createdAt == existing().createdAt &&
+          (
+            (
+              existing().gmUserId == request.auth.uid &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['memberUids'])
+            ) ||
+            (
+              request.auth.uid in existing().memberUids &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['reactionsJson'])
+            ) ||
+            (
+              request.auth.uid in existing().memberUids &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'pinned', 'pinnedBy', 'targetUserId', 'targetCharacterId', 'targetCharacterName'
+              ])
+            )
+          );
         allow delete: if isSignedIn() &&
           isValidId(storyId) &&
           isValidId(messageId) &&

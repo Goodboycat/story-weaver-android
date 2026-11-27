@@ -12,6 +12,7 @@ import com.example.ai.AiProvider
 import com.example.ai.SvgCodeToImageUtil
 import com.example.data.ActivityLog
 import com.example.data.Character
+import com.example.data.ChatEntityRef
 import com.example.data.ChatMessage
 import com.example.data.DiceRoll
 import com.example.data.EquipmentSlotItem
@@ -246,7 +247,7 @@ class StoryViewModel(
         val clean = prompt.trim()
         if (clean.isEmpty() || _aiChatState.value.isLoading) return
         val settings = userSettings.value
-        val activeModelLabel = if (mode == AiChatMode.IMAGE && settings.aiProvider == AiProvider.GEMINI) {
+        val activeModelLabel = if (mode == AiChatMode.IMAGE) {
             settings.aiImageModel
         } else {
             settings.aiModel
@@ -263,16 +264,8 @@ class StoryViewModel(
         )
         viewModelScope.launch {
             if (mode == AiChatMode.IMAGE) {
-                val targetEndpoint = if (settings.aiProvider == AiProvider.GEMINI) {
-                    settings.aiImageEndpointUrl
-                } else {
-                    settings.aiEndpointUrl
-                }
-                val targetModel = if (settings.aiProvider == AiProvider.GEMINI) {
-                    settings.aiImageModel
-                } else {
-                    settings.aiModel
-                }
+                val targetEndpoint = settings.aiImageEndpointUrl
+                val targetModel = settings.aiImageModel
                 AiImageGeneratorService.generateImageDataUrl(
                     prompt = clean,
                     model = targetModel,
@@ -386,6 +379,25 @@ class StoryViewModel(
         viewModelScope.launch {
             val result = repository.saveCharacter(story, character)
             result.onSuccess {
+                if (story.gmUserId == currentUserId) {
+                    val existingItems = (worldItemsState.value as? UiState.Success)?.data.orEmpty()
+                    val seenKeys = existingItems.map { it.category to it.title.trim().lowercase() }.toMutableSet()
+                    val bundle = com.example.ai.CharacterParserHelpers.buildWorldBundleFromCharacters(
+                        characters = listOf(character),
+                        story = story,
+                        ownerId = currentUserId,
+                    )
+                    val baseOrder = existingItems.size
+                    (bundle.locations + bundle.powers + bundle.items).forEachIndexed { idx, candidate ->
+                        val key = candidate.category to candidate.title.trim().lowercase()
+                        if (seenKeys.add(key)) {
+                            repository.saveWorldItem(
+                                story,
+                                candidate.copy(sortOrder = (baseOrder + idx).toLong())
+                            )
+                        }
+                    }
+                }
                 _toastMessage.value = "Saved ${character.name}"
                 onSaved()
             }.onFailure { err ->
@@ -485,13 +497,206 @@ class StoryViewModel(
         }
     }
 
-    fun sendChatMessage(story: Story, body: String) {
+    fun sendChatMessage(
+        story: Story,
+        body: String,
+        speakerName: String? = null,
+        replyTo: ChatMessage? = null,
+        entityRef: ChatEntityRef? = null,
+        pinned: Boolean = false,
+        targetUserId: String = "",
+        targetCharacterId: String = "",
+        targetCharacterName: String = "",
+    ) {
         val role = if (story.gmUserId == currentUserId && !_viewAsPlayer.value) "GM" else "Player"
+        val messageType = when {
+            pinned -> "pin"
+            entityRef != null -> "ref"
+            else -> "chat"
+        }
+        val replySnippet = replyTo?.let { parent ->
+            val src = parent.body.ifBlank { parent.refTitle }.replace("\n", " ").trim()
+            src.take(140)
+        }.orEmpty()
         viewModelScope.launch {
-            repository.sendMessage(story, role, body).onFailure { err ->
+            repository.sendMessage(
+                story = story,
+                senderRole = role,
+                body = body,
+                messageType = messageType,
+                senderNameOverride = speakerName,
+                replyToMessageId = replyTo?.id.orEmpty(),
+                replyToSenderName = replyTo?.senderName.orEmpty(),
+                replyToSnippet = replySnippet,
+                entityRef = entityRef,
+                pinned = pinned,
+                targetUserId = targetUserId,
+                targetCharacterId = targetCharacterId,
+                targetCharacterName = targetCharacterName,
+            ).onFailure { err ->
                 _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to send message.")
             }
         }
+    }
+
+    fun shareEntityToChat(
+        story: Story,
+        ref: ChatEntityRef,
+        note: String = "",
+        pinned: Boolean = false,
+        targetUserId: String = "",
+        targetCharacterId: String = "",
+        targetCharacterName: String = "",
+    ) {
+        val label = ref.refType.replaceFirstChar { it.uppercase() }
+        val text = note.ifBlank {
+            "${ref.emoji.ifBlank { "📚" }} Shared $label: ${ref.title}"
+        }
+        sendChatMessage(
+            story = story,
+            body = text,
+            entityRef = ref,
+            pinned = pinned,
+            targetUserId = targetUserId,
+            targetCharacterId = targetCharacterId,
+            targetCharacterName = targetCharacterName,
+        )
+        _toastMessage.value = if (pinned) {
+            "Pinned ${ref.title} to Party Chat"
+        } else {
+            "Shared ${ref.title} to Party Chat"
+        }
+    }
+
+    fun pinCharacterToChat(
+        story: Story,
+        character: Character,
+        targetUserId: String = character.ownerId,
+        note: String = "",
+    ) {
+        val resolvedTargetUid = targetUserId.ifBlank { character.ownerId }
+        val powers = JsonCodecs.decodePowers(character.powersJson)
+        val tags = buildList {
+            if (character.locationName.isNotBlank()) add(character.locationName)
+            powers.take(3).forEach { add(it.name) }
+        }
+        val ref = ChatEntityRef(
+            refType = character.kind,
+            refId = character.id,
+            title = character.name,
+            subtitle = buildString {
+                append(character.roleTitle.ifBlank { character.kind.uppercase() })
+                append(" • Lvl ${character.level} • HP ${character.hpCurrent}/${character.hpMax} • AC ${character.ac}")
+                if (character.locationName.isNotBlank()) append(" • 📍 ${character.locationName}")
+            },
+            emoji = character.avatarEmoji.ifBlank { "🛡️" },
+            description = character.notes.trim().take(1500),
+            tags = tags,
+            ownerId = resolvedTargetUid,
+        )
+        val body = note.trim().ifBlank {
+            "📌 Pinned ${character.name} (${character.avatarEmoji.ifBlank { "🛡️" }} Lvl ${character.level} • HP ${character.hpCurrent}/${character.hpMax})"
+        }
+        sendChatMessage(
+            story = story,
+            body = body,
+            entityRef = ref,
+            pinned = true,
+            targetUserId = resolvedTargetUid,
+            targetCharacterId = character.id,
+            targetCharacterName = character.name,
+        )
+        _toastMessage.value = "Pinned ${character.name} & notified owning player"
+    }
+
+    fun unpinCharacterFromChat(story: Story, characterId: String) {
+        val currentMessages = (messagesState.value as? UiState.Success)?.data.orEmpty()
+        val matching = currentMessages.filter {
+            it.pinned && (it.targetCharacterId == characterId || it.refId == characterId)
+        }
+        viewModelScope.launch {
+            matching.forEach { msg ->
+                repository.togglePinMessage(story, msg, pinned = false)
+            }
+            _toastMessage.value = "Unpinned character from chat"
+        }
+    }
+
+    fun togglePinMessage(story: Story, message: ChatMessage) {
+        val nextPinned = !message.pinned
+        val resolvedCharId = message.targetCharacterId.ifBlank {
+            if (message.refType in listOf("player", "npc", "monster")) message.refId else ""
+        }
+        val resolvedCharName = message.targetCharacterName.ifBlank {
+            if (message.refType in listOf("player", "npc", "monster")) message.refTitle else ""
+        }
+        val resolvedTargetUid = message.targetUserId.ifBlank {
+            if (resolvedCharId.isNotBlank()) {
+                val chars = (charactersState.value as? UiState.Success)?.data.orEmpty()
+                chars.firstOrNull { it.id == resolvedCharId }?.ownerId ?: message.senderId
+            } else {
+                ""
+            }
+        }
+        viewModelScope.launch {
+            repository.togglePinMessage(
+                story = story,
+                message = message,
+                pinned = nextPinned,
+                targetUserId = resolvedTargetUid,
+                targetCharacterId = resolvedCharId,
+                targetCharacterName = resolvedCharName,
+            ).onSuccess {
+                _toastMessage.value = if (nextPinned) "Message pinned" else "Unpinned message"
+            }.onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to update pin.")
+            }
+        }
+    }
+
+    fun toggleMessageReaction(story: Story, message: ChatMessage, emoji: String) {
+        viewModelScope.launch {
+            repository.toggleMessageReaction(story, message, emoji).onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to react.")
+            }
+        }
+    }
+
+    fun deleteChatMessage(story: Story, messageId: String) {
+        viewModelScope.launch {
+            repository.deleteMessage(story, messageId).onSuccess {
+                _toastMessage.value = "Message deleted"
+            }.onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to delete message.")
+            }
+        }
+    }
+
+    fun trySendSlashRoll(story: Story, rawText: String, rollerName: String): Boolean {
+        val trimmed = rawText.trim()
+        val expr = when {
+            trimmed.startsWith("/roll ", ignoreCase = true) -> trimmed.drop(6).trim()
+            trimmed.startsWith("/r ", ignoreCase = true) -> trimmed.drop(3).trim()
+            else -> return false
+        }
+        val compact = expr.replace(" ", "")
+        val diceMatches = Regex("""(\d+)d(\d+)""", RegexOption.IGNORE_CASE).findAll(compact).toList()
+        if (diceMatches.isEmpty()) return false
+        val terms = diceMatches.mapNotNull { m ->
+            val count = m.groupValues[1].toIntOrNull()?.coerceIn(1, 50) ?: return@mapNotNull null
+            val sides = m.groupValues[2].toIntOrNull()?.coerceIn(2, 1000) ?: return@mapNotNull null
+            count to sides
+        }
+        if (terms.isEmpty()) return false
+        val strippedMods = compact.replace(Regex("""\d+d\d+""", RegexOption.IGNORE_CASE), "")
+        val modMatches = Regex("""([+\-*/×÷])(\d+)""").findAll(strippedMods).toList()
+        val mods = modMatches.mapNotNull { m ->
+            val op = m.groupValues[1].firstOrNull() ?: return@mapNotNull null
+            val v = m.groupValues[2].toIntOrNull() ?: return@mapNotNull null
+            op to v
+        }
+        rollDice(story, terms, mods, rollerName)
+        return true
     }
 
     fun rollDice(
@@ -550,12 +755,12 @@ class StoryViewModel(
         viewModelScope.launch {
             _aiState.value = AiUiState.Loading
             if (useRegexFallback) {
-                val items = aiParser.parseCharactersRegex(rawText, kind, story, currentUserId)
-                items.forEach { repository.saveCharacter(story, it) }
-                _aiState.value = AiUiState.Success("Imported ${items.size} $kind sheet(s) via quick parser.")
+                val bundle = aiParser.parseCharactersBundleRegex(rawText, kind, story, currentUserId)
+                val summary = persistCharacterBundle(story, bundle, kind, "quick parser")
+                _aiState.value = AiUiState.Success(summary)
                 onComplete()
             } else {
-                val res = aiParser.parseCharactersWithAi(
+                val res = aiParser.parseCharactersBundleWithAi(
                     rawText = rawText,
                     kind = kind,
                     story = story,
@@ -565,14 +770,59 @@ class StoryViewModel(
                     endpointUrl = settings.aiEndpointUrl,
                     apiKeyOverride = settings.aiApiKey,
                 )
-                res.onSuccess { items ->
-                    items.forEach { repository.saveCharacter(story, it) }
-                    _aiState.value = AiUiState.Success("AI imported ${items.size} $kind sheet(s).")
+                res.onSuccess { bundle ->
+                    val summary = persistCharacterBundle(story, bundle, kind, "AI")
+                    _aiState.value = AiUiState.Success(summary)
                     onComplete()
                 }.onFailure { err ->
                     _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI parsing failed.")
                 }
             }
+        }
+    }
+
+    private suspend fun persistCharacterBundle(
+        story: Story,
+        bundle: com.example.ai.CharacterImportBundle,
+        kind: String,
+        sourceLabel: String,
+    ): String {
+        bundle.characters.forEach { repository.saveCharacter(story, it) }
+
+        val existingItems = (worldItemsState.value as? UiState.Success)?.data.orEmpty()
+        val seenKeys = existingItems.map { it.category to it.title.trim().lowercase() }.toMutableSet()
+
+        var addedLocations = 0
+        var addedPowers = 0
+        var addedItems = 0
+
+        if (story.gmUserId == currentUserId) {
+            val baseOrder = existingItems.size
+            (bundle.locations + bundle.powers + bundle.items).forEachIndexed { idx, candidate ->
+                val key = candidate.category to candidate.title.trim().lowercase()
+                if (seenKeys.add(key)) {
+                    repository.saveWorldItem(
+                        story,
+                        candidate.copy(sortOrder = (baseOrder + idx).toLong())
+                    )
+                    when (candidate.category) {
+                        "location" -> addedLocations++
+                        "power" -> addedPowers++
+                        "item" -> addedItems++
+                    }
+                }
+            }
+        }
+
+        val extraParts = buildList {
+            if (addedLocations > 0) add("$addedLocations location(s)")
+            if (addedPowers > 0) add("$addedPowers power(s)")
+            if (addedItems > 0) add("$addedItems item(s)")
+        }
+        return if (extraParts.isEmpty()) {
+            "Imported ${bundle.characters.size} $kind sheet(s) via $sourceLabel."
+        } else {
+            "Imported ${bundle.characters.size} $kind sheet(s) + ${extraParts.joinToString(", ")} via $sourceLabel."
         }
     }
 

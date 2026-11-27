@@ -26,6 +26,7 @@ import java.util.Locale
 object SessionNotificationScheduler {
     const val CHANNEL_SCHEDULE = "story_weaver_session_schedule"
     const val CHANNEL_REMINDER = "story_weaver_play_day_reminder"
+    const val CHANNEL_PIN = "story_weaver_character_pins"
 
     const val EXTRA_STORY_ID = "extra_story_id"
     const val EXTRA_STORY_TITLE = "extra_story_title"
@@ -54,8 +55,16 @@ object SessionNotificationScheduler {
             ).apply {
                 description = "Reminder notification on the day of your scheduled game session."
             }
+            val pinChannel = NotificationChannel(
+                CHANNEL_PIN,
+                "Character Pins",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notifies you when your character is pinned in Party Chat."
+            }
             manager.createNotificationChannel(scheduleChannel)
             manager.createNotificationChannel(reminderChannel)
+            manager.createNotificationChannel(pinChannel)
         }
     }
 
@@ -221,6 +230,31 @@ object SessionNotificationScheduler {
 
         NotificationManagerCompat.from(context)
             .notify(("rem_$storyId").hashCode(), notification)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun showPinnedCharacterNotification(
+        context: Context,
+        storyId: String,
+        storyTitle: String,
+        characterName: String,
+        messageBody: String,
+    ) {
+        if (!hasNotificationPermission(context)) return
+        ensureChannels(context)
+        val preview = messageBody.ifBlank { "Your character $characterName was pinned in chat." }
+        val notification = NotificationCompat.Builder(context, CHANNEL_PIN)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Pinned Character: $characterName")
+            .setContentText("$storyTitle — $preview")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$storyTitle\n$preview"))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(buildOpenAppIntent(context, ("pin_${storyId}_$characterName").hashCode()))
+            .build()
+
+        NotificationManagerCompat.from(context)
+            .notify(("pin_${storyId}_$characterName").hashCode(), notification)
     }
 
     fun schedulePlayDayReminderAlarm(context: Context, record: ScheduledSessionRecord) {

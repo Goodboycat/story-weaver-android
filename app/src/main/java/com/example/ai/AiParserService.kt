@@ -92,16 +92,17 @@ object EmojiHelper {
 object AiPromptTemplates {
     fun parserSystemInstructions(contextHint: String? = null): String = buildString {
         appendLine("STORY WEAVER PARSER RULES & SYMBOLS:")
-        appendLine("Whenever you generate characters, NPCs, monsters, locations, powers, notes, or equipment loadouts, ALWAYS include clear parser symbols and matching emojis so the user can import them directly:")
+        appendLine("Whenever you generate characters, NPCs, monsters, locations, powers, items, notes, or equipment loadouts, ALWAYS include clear parser symbols and matching emojis so the user can import them directly:")
         appendLine("- Characters / NPCs / Monsters (separate multiple entries with a blank line):")
         appendLine("  <Emoji> <Name>")
         appendLine("  Class: <Role/Class/Species>")
+        appendLine("  Location: <Location Name>")
         appendLine("  LVL: <integer> | HP: <integer> | AC: <integer>")
         appendLine("  Emoji: <single fitting Unicode emoji>")
-        appendLine("  Powers: <comma-separated abilities>")
-        appendLine("  Gear: <comma-separated items>")
+        appendLine("  Powers: <Power Name> (<Cost>) - <Full Description> [#tag1, #tag2], <Next Power...>")
+        appendLine("  Gear: <comma-separated tools, weapons, armor & equipment>")
         appendLine("  Stats: STR <n>, DEX <n>, CON <n>, INT <n>, WIS <n>, CHA <n>")
-        appendLine("- Locations / Powers / Notes (separate multiple cards with a blank line):")
+        appendLine("- Locations / Powers / Items / Notes (separate multiple cards with a blank line):")
         appendLine("  # <Emoji> <Title>")
         appendLine("  Subtitle: <Category/Type>")
         appendLine("  Tags: <tag1, tag2>")
@@ -116,7 +117,7 @@ object AiPromptTemplates {
 
     fun characterPrompt(kind: String): String = """
         Convert the following notes into structured $kind entries for a tabletop RPG.
-        For each entry, extract: Name, Role/Class, Level, HP, AC, Notes, matching Emoji symbol (avatarEmoji), Stats (STR/DEX/CON/INT/WIS/CHA), Powers, and Gear.
+        For each entry, extract: Name, Role/Class, Location (locationName), Level, HP, AC, Notes, matching Emoji symbol (avatarEmoji), Stats (STR, DEX, CON, INT, WIS, CHA, plus custom stats), complete Powers (name, cost, description, emoji, tags), and Gear (mapped into inventory AND 12-slot equipment: head, eyes, neck, shoulders, chest, back, wrists, hands, waist, legs, feet, weapon_main).
     """.trimIndent()
 
     fun worldItemPrompt(category: String): String = """
@@ -163,7 +164,8 @@ object AiPromptTemplates {
         appendLine("PAINTING ENGINE RULES:")
         appendLine("- Grid bounds: width 4..30, height 4..30. Coordinates are 0-indexed: x in 0..width-1, y in 0..height-1.")
         appendLine("- Operations execute in order! Paint base terrain/floors first (e.g. rect), then walls/borders (rect_border), then rivers/roads/corridors (line), then cutouts/doorways (erase or paint), then details/furniture/trees/traps/treasures (paint, circle, scatter, checker).")
-        appendLine("- Composite blocks: every tile has an optional background block colorHex (#RRGGBB or null) AND an optional foreground Unicode emoji on top.")
+        appendLine("- Composite blocks: every tile has an optional background block colorHex (#RRGGBB or JSON null) AND an optional foreground single Unicode emoji.")
+        appendLine("- STRICT EMOJI & TILE RULE: NEVER output the string \"null\", \"none\", or plain English words like \"tree\" or \"wall\" in \"emoji\". For a color-only block, either omit \"emoji\" completely or set JSON null (not quoted \"null\"). When drawing symbols, ONLY use actual Unicode emojis from the app symbol set (🌲 🌳 🌴 🌵 🍄 🌻 ⛰️ 🪨 🌊 💧 ❄️ 🔥 🌋 🧱 🏰 🏛️ ⛩️ ⛺ 🏠 🛤️ 🌉 🚪 🗝️ 🪜 🕳️ ☠️ 💀 ⚔️ 🛡️ 🏹 💎 🪙 ⚱️ 🕯️ 📜 ✨ 🔮 🧪 🪵).")
         appendLine("- Use clearFirst=true when creating a brand-new map; use clearFirst=false when editing/adding to an existing map.")
         appendLine("- Keep tokens array empty [] unless the user explicitly asks to place characters/monsters/NPCs on the map.")
         appendLine()
@@ -179,15 +181,20 @@ class AiParserService {
                     properties = mapOf(
                         "name" to Schema.string(description = "Character or creature name"),
                         "roleTitle" to Schema.string(description = "Class, role, or creature type"),
+                        "locationName" to Schema.string(description = "Home, settlement, or current location name"),
                         "level" to Schema.integer(description = "Level or challenge rating"),
                         "hpMax" to Schema.integer(description = "Maximum hit points"),
                         "ac" to Schema.integer(description = "Armor class"),
                         "notes" to Schema.string(description = "Concise tabletop notes and lore"),
                         "avatarEmoji" to Schema.string(description = "Single matching Unicode emoji symbol"),
-                        "powers" to Schema.array(items = Schema.string(), description = "List of key abilities"),
-                        "inventory" to Schema.array(items = Schema.string(), description = "Key carried items"),
+                        "stats" to Schema.string(description = "Stats line e.g. STR 17, DEX 10, CON 16, INT 15, WIS 12, CHA 11"),
+                        "powers" to Schema.array(
+                            items = Schema.string(),
+                            description = "Abilities formatted as 'Name (Cost) - Description [tag1, tag2]'"
+                        ),
+                        "inventory" to Schema.array(items = Schema.string(), description = "Carried tools, weapons, armor, and items"),
                     ),
-                    optionalProperties = listOf("avatarEmoji", "powers", "inventory")
+                    optionalProperties = listOf("locationName", "avatarEmoji", "stats", "powers", "inventory")
                 )
             )
         )
@@ -309,6 +316,28 @@ class AiParserService {
         }
     }
 
+    suspend fun parseCharactersBundleWithAi(
+        rawText: String,
+        kind: String,
+        story: Story,
+        ownerId: String,
+        provider: AiProvider,
+        modelName: String,
+        endpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
+        apiKeyOverride: String = "",
+    ): Result<CharacterImportBundle> = parseCharactersWithAi(
+        rawText = rawText,
+        kind = kind,
+        story = story,
+        ownerId = ownerId,
+        provider = provider,
+        modelName = modelName,
+        endpointUrl = endpointUrl,
+        apiKeyOverride = apiKeyOverride,
+    ).map { chars ->
+        CharacterParserHelpers.buildWorldBundleFromCharacters(chars, story, ownerId)
+    }
+
     suspend fun parseCharactersWithAi(
         rawText: String,
         kind: String,
@@ -325,7 +354,7 @@ class AiParserService {
                     You are a strict JSON parser for a tabletop RPG app.
                     ${AiPromptTemplates.parserSystemInstructions(kind)}
                     Return ONLY a valid JSON object matching this schema (no markdown or extra prose):
-                    {"items":[{"name":"string","roleTitle":"string","level":1,"hpMax":12,"ac":12,"notes":"string","avatarEmoji":"🛡️","powers":["string"],"inventory":["string"]}]}
+                    {"items":[{"name":"string","roleTitle":"string","locationName":"string","level":1,"hpMax":12,"ac":12,"notes":"string","avatarEmoji":"🛡️","stats":{"STR":10,"DEX":10,"CON":10,"INT":10,"WIS":10,"CHA":10},"powers":[{"name":"string","cost":"string","description":"string","emoji":"✨","tags":["tag1"]}],"inventory":["string"],"equipment":[{"slotKey":"weapon_main","itemName":"string","bonus":"+1 Attack","notes":"string","emoji":"⚔️"}]}]}
                 """.trimIndent()
                 val userPrompt = "${AiPromptTemplates.characterPrompt(kind)}\n\nCampaign: ${story.title} (${story.systemName})\n\nInput:\n$rawText"
                 val fallback = if (provider == AiProvider.OPENROUTER) {
@@ -361,46 +390,163 @@ class AiParserService {
 
         val root = JSONObject(jsonText)
         val arr = root.getJSONArray("items")
+        val rawSectionsFallback = CharacterParserHelpers.extractFieldSections(rawText)
         val parsed = (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             val name = o.optString("name", "Unnamed").trim().ifBlank { "Unnamed" }
             val role = o.optString("roleTitle", kind.replaceFirstChar { it.uppercase() })
+            val locationName = o.optString("locationName", "")
+                .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                ?: rawSectionsFallback["location"].orEmpty()
             val level = o.optInt("level", 1).coerceIn(1, 999).toLong()
             val hp = o.optInt("hpMax", 12).coerceIn(1, 9999).toLong()
             val ac = o.optInt("ac", 12).coerceIn(1, 99).toLong()
-            val notes = o.optString("notes", "")
-            val emoji = o.optString("avatarEmoji").takeIf { it.isNotBlank() }
+            val notes = o.optString("notes", "").ifBlank { rawText.take(4000) }
+            val emoji = o.optString("avatarEmoji")
+                .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
                 ?: EmojiHelper.suggestEmoji("$name $role $notes", if (kind == "monster") "👹" else "🛡️")
 
+            // Parse powers (object or rich formatted string)
             val powersArr = o.optJSONArray("powers")
-            val powersList = if (powersArr != null) {
-                (0 until powersArr.length()).mapNotNull { idx ->
-                    val pRaw = powersArr.optString(idx).trim()
-                    if (pRaw.isBlank()) null else {
-                        val pEmoji = EmojiHelper.extractLeadingEmoji(pRaw) ?: EmojiHelper.suggestEmoji(pRaw, "✨")
-                        PowerEntry(
-                            id = "pow_${UUID.randomUUID().toString().take(8)}",
-                            name = EmojiHelper.stripLeadingEmoji(pRaw).ifBlank { pRaw },
-                            emoji = pEmoji
-                        )
+            val powersList = mutableListOf<PowerEntry>()
+            if (powersArr != null) {
+                for (idx in 0 until powersArr.length()) {
+                    val item = powersArr.opt(idx)
+                    if (item is JSONObject) {
+                        val pName = item.optString("name").trim()
+                        if (pName.isNotBlank()) {
+                            val pDesc = item.optString("description", "").trim()
+                            val pCost = item.optString("cost", "").trim()
+                            val pEmoji = item.optString("emoji")
+                                .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                                ?: EmojiHelper.suggestEmoji("$pName $pDesc", "✨")
+                            val tagsArr = item.optJSONArray("tags")
+                            val pTags = if (tagsArr != null) {
+                                (0 until tagsArr.length()).mapNotNull { ti ->
+                                    tagsArr.optString(ti).trim().takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                                }
+                            } else emptyList()
+                            powersList += PowerEntry(
+                                id = "pow_${UUID.randomUUID().toString().take(8)}",
+                                name = EmojiHelper.stripLeadingEmoji(pName).ifBlank { pName },
+                                cost = pCost,
+                                description = pDesc.ifBlank { "Ability of $name: $pName." },
+                                emoji = pEmoji,
+                                tags = pTags.ifEmpty { CharacterParserHelpers.suggestTags("$pName $pDesc", "power") },
+                            )
+                        }
+                    } else {
+                        val pRaw = powersArr.optString(idx).trim()
+                        CharacterParserHelpers.parseSinglePowerEntry(pRaw)?.let { powersList += it }
                     }
                 }
-            } else emptyList()
+            }
+            if (powersList.isEmpty() && rawSectionsFallback["powers"] != null && arr.length() == 1) {
+                powersList += CharacterParserHelpers.parsePowerEntries(rawSectionsFallback["powers"])
+            }
 
+            // Parse inventory & equipment
             val invArr = o.optJSONArray("inventory")
-            val invList = if (invArr != null) {
-                (0 until invArr.length()).mapNotNull { idx ->
+            val gearItems = mutableListOf<ParsedGearItem>()
+            if (invArr != null) {
+                for (idx in 0 until invArr.length()) {
                     val iRaw = invArr.optString(idx).trim()
-                    if (iRaw.isBlank()) null else {
-                        val iEmoji = EmojiHelper.extractLeadingEmoji(iRaw) ?: EmojiHelper.suggestEmoji(iRaw, "🎒")
-                        InventoryEntry(
-                            id = "inv_${UUID.randomUUID().toString().take(8)}",
-                            name = EmojiHelper.stripLeadingEmoji(iRaw).ifBlank { iRaw },
-                            emoji = iEmoji
+                    CharacterParserHelpers.parseSingleGearItem(iRaw)?.let { gearItems += it }
+                }
+            }
+            if (gearItems.isEmpty() && rawSectionsFallback["gear"] != null && arr.length() == 1) {
+                gearItems += CharacterParserHelpers.parseGearEntries(rawSectionsFallback["gear"])
+            }
+            val invList = gearItems.map { g ->
+                InventoryEntry(
+                    id = "inv_${UUID.randomUUID().toString().take(8)}",
+                    name = g.name,
+                    quantity = g.quantity,
+                    notes = listOfNotNull(
+                        g.bonus.takeIf { it.isNotBlank() },
+                        g.notes.takeIf { it.isNotBlank() },
+                    ).joinToString(" — "),
+                    emoji = g.emoji,
+                )
+            }
+
+            val equipmentMap = CharacterParserHelpers.buildEquipmentMap(gearItems).toMutableMap()
+            val eqArr = o.optJSONArray("equipment")
+            if (eqArr != null) {
+                for (idx in 0 until eqArr.length()) {
+                    val eo = eqArr.optJSONObject(idx) ?: continue
+                    val slotKey = eo.optString("slotKey").trim()
+                    val itemName = eo.optString("itemName").trim()
+                    val validSlot = EquipmentSlot.entries.firstOrNull { it.key == slotKey }
+                    if (validSlot != null && itemName.isNotBlank()) {
+                        equipmentMap[slotKey] = EquipmentSlotItem(
+                            name = EmojiHelper.stripLeadingEmoji(itemName).ifBlank { itemName },
+                            bonus = eo.optString("bonus", ""),
+                            notes = eo.optString("notes", ""),
+                            emoji = eo.optString("emoji").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                                ?: EmojiHelper.suggestEmoji(itemName, validSlot.emoji),
                         )
                     }
                 }
-            } else emptyList()
+            } else {
+                val eqObj = o.optJSONObject("equipment")
+                if (eqObj != null) {
+                    val keys = eqObj.keys()
+                    while (keys.hasNext()) {
+                        val slotKey = keys.next()
+                        val validSlot = EquipmentSlot.entries.firstOrNull { it.key == slotKey } ?: continue
+                        val slotVal = eqObj.optJSONObject(slotKey)
+                        if (slotVal != null) {
+                            val itemName = slotVal.optString("name").ifBlank { slotVal.optString("itemName") }.trim()
+                            if (itemName.isNotBlank()) {
+                                equipmentMap[slotKey] = EquipmentSlotItem(
+                                    name = itemName,
+                                    bonus = slotVal.optString("bonus", ""),
+                                    notes = slotVal.optString("notes", ""),
+                                    emoji = slotVal.optString("emoji").ifBlank { validSlot.emoji },
+                                )
+                            }
+                        } else {
+                            val itemStr = eqObj.optString(slotKey).trim()
+                            CharacterParserHelpers.parseSingleGearItem(itemStr)?.let { g ->
+                                equipmentMap[slotKey] = EquipmentSlotItem(
+                                    name = g.name,
+                                    bonus = g.bonus,
+                                    notes = g.notes,
+                                    emoji = g.emoji,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Parse stats (supports object map OR string, with rawText fallback)
+            val parsedStats = JsonCodecs.defaultStats().toMutableMap()
+            val statsObj = o.optJSONObject("stats")
+            if (statsObj != null) {
+                val keys = statsObj.keys()
+                while (keys.hasNext()) {
+                    val sk = keys.next().trim().uppercase()
+                    val sv = statsObj.optString(sk).takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                        ?: statsObj.optString(keys.toString()).takeIf { it.isNotBlank() }
+                    if (!sv.isNullOrBlank()) parsedStats[sk] = sv
+                }
+            } else {
+                val statsStr = o.optString("stats", "")
+                if (statsStr.isNotBlank() && !statsStr.equals("null", ignoreCase = true)) {
+                    parsedStats.putAll(CharacterParserHelpers.parseStatsMap(statsStr, parsedStats))
+                }
+            }
+            if (arr.length() == 1 && rawSectionsFallback["stats"] != null) {
+                val defaults = JsonCodecs.defaultStats()
+                val rawParsed = CharacterParserHelpers.parseStatsMap(rawSectionsFallback["stats"])
+                rawParsed.forEach { (k, v) ->
+                    if (parsedStats[k] == defaults[k] || !parsedStats.containsKey(k)) {
+                        parsedStats[k] = v
+                    }
+                }
+            }
 
             Character(
                 storyId = story.id,
@@ -408,17 +554,19 @@ class AiParserService {
                 ownerId = ownerId,
                 memberUids = story.memberUids,
                 kind = kind,
-                name = name,
-                avatarEmoji = emoji,
-                roleTitle = role,
+                name = name.take(100),
+                avatarEmoji = emoji.take(16),
+                roleTitle = role.take(100),
+                locationName = locationName.trim().take(120),
                 level = level,
                 hpCurrent = hp,
                 hpMax = hp,
                 ac = ac,
-                notes = notes,
+                notes = notes.take(5000),
                 powersJson = JsonCodecs.encodePowers(powersList),
                 inventoryJson = JsonCodecs.encodeInventory(invList),
-                statsJson = JsonCodecs.encodeStats(JsonCodecs.defaultStats()),
+                equipmentJson = JsonCodecs.encodeEquipment(equipmentMap),
+                statsJson = JsonCodecs.encodeStats(parsedStats),
             )
         }
         Result.success(parsed)
@@ -493,9 +641,11 @@ class AiParserService {
             val fallbackEmoji = when (category) {
                 "location" -> "🏰"
                 "power" -> "✨"
+                "item" -> "⚔️"
                 else -> "📜"
             }
-            val emoji = o.optString("iconEmoji").takeIf { it.isNotBlank() }
+            val emoji = o.optString("iconEmoji")
+                .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
                 ?: EmojiHelper.suggestEmoji("$title $subtitle $desc", fallbackEmoji)
             val tagsArr = o.optJSONArray("tags")
             val tags = if (tagsArr != null) {
@@ -514,6 +664,7 @@ class AiParserService {
                 iconName = when (category) {
                     "location" -> "Place"
                     "power" -> "AutoAwesome"
+                    "item" -> "Build"
                     else -> "Description"
                 },
                 iconEmoji = emoji,
@@ -621,80 +772,18 @@ class AiParserService {
     ): List<Character> {
         val blocks = rawText.trim().split(Regex("\\n\\s*\\n+")).filter { it.isNotBlank() }
         return blocks.map { block ->
-            val lines = block.lines().map { it.trim() }.filter { it.isNotBlank() }
-            val firstLineRaw = lines.firstOrNull()?.removePrefix("#")?.removePrefix("-")?.removePrefix("*")?.trim() ?: "Hero"
-            val leadingEmoji = EmojiHelper.extractLeadingEmoji(firstLineRaw)
-            val firstLine = EmojiHelper.stripLeadingEmoji(firstLineRaw)
-            val name = firstLine.substringBefore("(").substringBefore(" - ").trim().ifBlank { "Hero" }
-            val hpMatch = Regex("""HP[:\s]+(\d+)""", RegexOption.IGNORE_CASE).find(block)
-            val acMatch = Regex("""AC[:\s]+(\d+)""", RegexOption.IGNORE_CASE).find(block)
-            val lvlMatch = Regex("""(?:LVL|Level|CR)[:\s]+(\d+)""", RegexOption.IGNORE_CASE).find(block)
-            val roleMatch = Regex("""(?:Class|Role|Type)[:\s]+([^\n|]+)""", RegexOption.IGNORE_CASE).find(block)
-            val emojiMatch = Regex("""Emoji[:\s]+([^\s\n]+)""", RegexOption.IGNORE_CASE).find(block)
-            val powersMatch = Regex("""Powers?[:\s]+([^\n]+)""", RegexOption.IGNORE_CASE).find(block)
-            val gearMatch = Regex("""(?:Gear|Inventory)[:\s]+([^\n]+)""", RegexOption.IGNORE_CASE).find(block)
-            val statsMatch = Regex("""Stats[:\s]+([^\n]+)""", RegexOption.IGNORE_CASE).find(block)
-
-            val hp = hpMatch?.groupValues?.get(1)?.toLongOrNull() ?: 15L
-            val ac = acMatch?.groupValues?.get(1)?.toLongOrNull() ?: 12L
-            val lvl = lvlMatch?.groupValues?.get(1)?.toLongOrNull() ?: 1L
-            val role = roleMatch?.groupValues?.get(1)?.trim() ?: kind.replaceFirstChar { it.uppercase() }
-            val emoji = emojiMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() }
-                ?: leadingEmoji
-                ?: EmojiHelper.suggestEmoji(block, if (kind == "monster") "👹" else "🛡️")
-
-            val powersList = powersMatch?.groupValues?.get(1)
-                ?.split(",")
-                ?.map { it.trim() }
-                ?.filter { it.isNotBlank() }
-                ?.map { p ->
-                    PowerEntry(
-                        id = "pow_${UUID.randomUUID().toString().take(8)}",
-                        name = EmojiHelper.stripLeadingEmoji(p).ifBlank { p },
-                        emoji = EmojiHelper.extractLeadingEmoji(p) ?: EmojiHelper.suggestEmoji(p, "✨")
-                    )
-                }
-                ?: emptyList()
-
-            val invList = gearMatch?.groupValues?.get(1)
-                ?.split(",")
-                ?.map { it.trim() }
-                ?.filter { it.isNotBlank() }
-                ?.map { item ->
-                    InventoryEntry(
-                        id = "inv_${UUID.randomUUID().toString().take(8)}",
-                        name = EmojiHelper.stripLeadingEmoji(item).ifBlank { item },
-                        emoji = EmojiHelper.extractLeadingEmoji(item) ?: EmojiHelper.suggestEmoji(item, "🎒")
-                    )
-                }
-                ?: emptyList()
-
-            val parsedStats = JsonCodecs.defaultStats().toMutableMap()
-            statsMatch?.groupValues?.get(1)?.let { statsLine ->
-                Regex("""([A-Za-z]{2,8})[:\s]+(-?\d+)""").findAll(statsLine).forEach { m ->
-                    parsedStats[m.groupValues[1].uppercase()] = m.groupValues[2]
-                }
-            }
-
-            Character(
-                storyId = story.id,
-                gmUserId = story.gmUserId,
-                ownerId = ownerId,
-                memberUids = story.memberUids,
-                kind = kind,
-                name = name.take(100),
-                avatarEmoji = emoji.take(16),
-                roleTitle = role.take(100),
-                level = lvl,
-                hpCurrent = hp,
-                hpMax = hp,
-                ac = ac,
-                notes = block.take(5000),
-                powersJson = JsonCodecs.encodePowers(powersList),
-                inventoryJson = JsonCodecs.encodeInventory(invList),
-                statsJson = JsonCodecs.encodeStats(parsedStats),
-            )
+            CharacterParserHelpers.parseSingleCharacterBlockRegex(block, kind, story, ownerId)
         }
+    }
+
+    fun parseCharactersBundleRegex(
+        rawText: String,
+        kind: String,
+        story: Story,
+        ownerId: String,
+    ): CharacterImportBundle {
+        val chars = parseCharactersRegex(rawText, kind, story, ownerId)
+        return CharacterParserHelpers.buildWorldBundleFromCharacters(chars, story, ownerId)
     }
 
     fun parseWorldItemsRegex(
@@ -708,6 +797,7 @@ class AiParserService {
         val fallbackEmoji = when (category) {
             "location" -> "🏰"
             "power" -> "✨"
+            "item" -> "⚔️"
             else -> "📜"
         }
         return blocks.mapIndexed { idx, block ->

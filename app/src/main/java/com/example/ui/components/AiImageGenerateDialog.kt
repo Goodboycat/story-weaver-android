@@ -1,9 +1,8 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,15 +10,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,7 +40,6 @@ import com.example.ai.AiImageGeneratorService
 import com.example.ai.AiModelDefaults
 import com.example.data.UserSettings
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AiImageGenerateDialog(
     title: String,
@@ -51,6 +52,7 @@ fun AiImageGenerateDialog(
 ) {
     var prompt by remember(defaultPrompt) { mutableStateOf(defaultPrompt) }
     var draftModel by remember(userSettings.aiImageModel) { mutableStateOf(userSettings.aiImageModel) }
+    var showModelMenu by remember { mutableStateOf(false) }
     var isGenerating by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -143,27 +145,39 @@ fun AiImageGenerateDialog(
                     }
                 }
 
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    AiModelDefaults.presetImageModels.forEach { model ->
-                        FilterChip(
-                            selected = userSettings.aiImageModel == model,
-                            enabled = !isGenerating,
-                            onClick = {
-                                draftModel = model
-                                onSelectImageModel(model)
-                            },
-                            label = {
-                                Text(
-                                    text = model.substringAfter("/"),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { showModelMenu = true },
+                        enabled = !isGenerating,
+                        modifier = Modifier.fillMaxWidth().testTag("ai_image_dialog_model_dropdown")
+                    ) {
+                        Text(
+                            text = "Image Model: ${userSettings.aiImageModel}",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Select image model")
+                    }
+                    DropdownMenu(
+                        expanded = showModelMenu,
+                        onDismissRequest = { showModelMenu = false }
+                    ) {
+                        AiModelDefaults.presetImageModels.forEach { model ->
+                            DropdownMenuItem(
+                                text = { Text(model) },
+                                leadingIcon = {
+                                    if (userSettings.aiImageModel == model) {
+                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    }
+                                },
+                                onClick = {
+                                    draftModel = model
+                                    onSelectImageModel(model)
+                                    showModelMenu = false
+                                }
+                            )
+                        }
                     }
                 }
 

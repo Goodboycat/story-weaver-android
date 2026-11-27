@@ -109,6 +109,17 @@ object GuidesContent {
             checklist = listOf("Clear trigger/cost", "Tactical niche", "Narrative flavor"),
         ),
         IdeaGuideContent(
+            key = "items",
+            title = "Tools, Gear & Weapons",
+            subtitle = "Signature equipment and campaign loot",
+            prompts = listOf(
+                "Runed Folding Forge Kit (+2 Crafting, sets up in 1 minute)",
+                "Faultline Maul (2d6 bludgeoning, cracks stone shields on crit)",
+                "Reinforced Heat-Proof Apron (+1 AC, resistance to forge embers)",
+            ),
+            checklist = listOf("Equipment slot or tool role", "Bonus / mechanical edge", "Crafting origin or quirk"),
+        ),
+        IdeaGuideContent(
             key = "notes",
             title = "Campaign Notes & Clues",
             subtitle = "Secrets, clocks, and lore",

@@ -235,3 +235,80 @@ test("Shadow fields, extra @DocumentId id key, and future timestamps are rejecte
     })
   );
 });
+
+test("Chat supports rich entity refs, Discord replies, character pins targeting owner, and member reactions", async () => {
+  const gmDb = testEnv.authenticatedContext(GM_UID).firestore();
+  const playerDb = testEnv.authenticatedContext(PLAYER_UID).firestore();
+  const strangerDb = testEnv.authenticatedContext(STRANGER_UID).firestore();
+  const ts = new Date(Date.now() - 1000);
+
+  await assertSucceeds(
+    gmDb.collection("stories").doc("story_chat").set({
+      ...baseStory(ts),
+      memberUids: [GM_UID, PLAYER_UID],
+    })
+  );
+
+  // GM sends a rich power reference message + reply metadata
+  await assertSucceeds(
+    gmDb.collection("stories").doc("story_chat").collection("messages").doc("msg_1").set({
+      storyId: "story_chat",
+      gmUserId: GM_UID,
+      memberUids: [GM_UID, PLAYER_UID],
+      senderId: GM_UID,
+      senderName: "Alice GM",
+      senderRole: "GM",
+      body: "Check out this spell for Lyra!",
+      messageType: "ref",
+      refType: "power",
+      refId: "pow_1",
+      refTitle: "Temper Item",
+      refSubtitle: "Cost: 1 Action",
+      refEmoji: "⚒️",
+      refDescription: "Infuses an ally weapon with molten embers.",
+      refTagsJson: '["Forge","Buff"]',
+      pinned: true,
+      pinnedBy: GM_UID,
+      targetUserId: PLAYER_UID,
+      targetCharacterId: "char_bob",
+      targetCharacterName: "Lyra Vance",
+      createdAt: ts,
+    })
+  );
+
+  // Player replies to msg_1
+  await assertSucceeds(
+    playerDb.collection("stories").doc("story_chat").collection("messages").doc("msg_2").set({
+      storyId: "story_chat",
+      gmUserId: GM_UID,
+      memberUids: [GM_UID, PLAYER_UID],
+      senderId: PLAYER_UID,
+      senderName: "Bob",
+      senderRole: "Player",
+      body: "Casting Temper Item now!",
+      messageType: "chat",
+      replyToMessageId: "msg_1",
+      replyToSenderName: "Alice GM",
+      replyToSnippet: "Check out this spell for Lyra!",
+      createdAt: ts,
+    })
+  );
+
+  // Member toggles emoji reaction on msg_1; editing body fails; stranger fails
+  await assertSucceeds(
+    playerDb.collection("stories").doc("story_chat").collection("messages").doc("msg_1").update({
+      reactionsJson: '{"🔥":["player_bob_456"]}',
+    })
+  );
+  await assertFails(
+    playerDb.collection("stories").doc("story_chat").collection("messages").doc("msg_1").update({
+      body: "Tampered body",
+    })
+  );
+  await assertFails(
+    strangerDb.collection("stories").doc("story_chat").collection("messages").doc("msg_1").update({
+      reactionsJson: '{"💀":["stranger_eve_789"]}',
+    })
+  );
+});
+

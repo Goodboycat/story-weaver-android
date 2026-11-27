@@ -3,6 +3,8 @@ package com.example.ui.tabs
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -40,6 +42,7 @@ import com.example.data.GuidesContent
 import com.example.data.JsonCodecs
 import com.example.data.Story
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GuideTab(
     story: Story,
@@ -77,7 +80,7 @@ fun GuideTab(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text("GM Campaign Prep Guide", style = MaterialTheme.typography.headlineSmall)
                             Text(
                                 "$doneCount of $totalSteps milestones completed (${(progress * 100).toInt()}%)",
@@ -99,15 +102,16 @@ fun GuideTab(
                         progress = { progress },
                         modifier = Modifier.fillMaxWidth().height(8.dp)
                     )
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         listOf("all" to "All", "beginner" to "Beginner", "advanced" to "Advanced", "master" to "Master").forEach { (key, label) ->
                             FilterChip(
                                 selected = selectedTier == key,
                                 onClick = { selectedTier = key },
-                                label = { Text(label) },
+                                label = { Text(label, maxLines = 1, softWrap = false) },
                                 modifier = Modifier.testTag("guide_tier_$key")
                             )
                         }

@@ -19,9 +19,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -51,11 +53,14 @@ import com.example.ai.AiChatUiState
 import com.example.ai.AiPromptTemplates
 import com.example.ai.AiProvider
 import com.example.data.Character
+import com.example.data.ChatMessage
 import com.example.data.EquipmentSlotItem
 import com.example.data.JsonCodecs
 import com.example.data.Story
 import com.example.data.UserSettings
+import com.example.data.WorldItem
 import com.example.ui.components.AiImportDialog
+import com.example.ui.components.FullImageViewerDialog
 import com.example.ui.components.IdeaGuideDialog
 import com.example.ui.components.ImagePickerUtil
 import com.example.viewmodel.AiUiState
@@ -65,6 +70,9 @@ fun EntitiesTab(
     story: Story,
     kind: String, // "player" | "npc" | "monster"
     characters: List<Character>,
+    worldItems: List<WorldItem> = emptyList(),
+    messages: List<ChatMessage> = emptyList(),
+    pinnedCharacterIds: Set<String> = emptySet(),
     currentUserId: String,
     isGmMode: Boolean,
     aiState: AiUiState,
@@ -80,6 +88,10 @@ fun EntitiesTab(
     onImportAi: (rawText: String, useRegex: Boolean, onDone: () -> Unit) -> Unit,
     onParseEquipmentAi: (rawText: String, onParsed: (Map<String, EquipmentSlotItem>) -> Unit) -> Unit,
     onResetAiState: () -> Unit,
+    onJumpToLocation: (String) -> Unit = {},
+    onShareCharacterToChat: ((Character) -> Unit)? = null,
+    onPinCharacter: ((Character, targetUserId: String, note: String) -> Unit)? = null,
+    onUnpinCharacter: ((String) -> Unit)? = null,
 ) {
     val filtered = remember(characters, kind) { characters.filter { it.kind == kind } }
     var searchQuery by remember { mutableStateOf("") }
@@ -87,13 +99,16 @@ fun EntitiesTab(
         if (searchQuery.isBlank()) filtered
         else filtered.filter {
             it.name.contains(searchQuery, ignoreCase = true) ||
-                it.roleTitle.contains(searchQuery, ignoreCase = true)
+                it.roleTitle.contains(searchQuery, ignoreCase = true) ||
+                it.locationName.contains(searchQuery, ignoreCase = true)
         }
     }
 
     var multiSelect by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     var editingCharacter by remember { mutableStateOf<Character?>(null) }
+    var pinDialogTarget by remember { mutableStateOf<Character?>(null) }
+    var fullScreenImage by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showAiImport by remember { mutableStateOf(false) }
     var showGuide by remember { mutableStateOf(false) }
 
@@ -252,7 +267,12 @@ fun EntitiesTab(
                             Surface(
                                 shape = CircleShape,
                                 color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(48.dp).clip(CircleShape)
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .clickable(enabled = !multiSelect && !char.avatarUrl.isNullOrBlank()) {
+                                        fullScreenImage = char.name to char.avatarUrl!!
+                                    }
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     if (avatarBitmap != null) {
@@ -268,19 +288,76 @@ fun EntitiesTab(
                                 }
                             }
                             Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        char.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    if (char.id in pinnedCharacterIds) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            shape = MaterialTheme.shapes.extraSmall
+                                        ) {
+                                            Text(
+                                                "📌 Pinned",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
                                 Text(
-                                    char.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    "${char.roleTitle.ifBlank { kind.uppercase() }} • Lvl ${char.level} • HP ${char.hpCurrent}/${char.hpMax} • AC ${char.ac}",
+                                    buildString {
+                                        append("${char.roleTitle.ifBlank { kind.uppercase() }} • Lvl ${char.level} • HP ${char.hpCurrent}/${char.hpMax} • AC ${char.ac}")
+                                        if (char.locationName.isNotBlank()) append(" • 📍 ${char.locationName}")
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                            }
+                            if (!multiSelect) {
+                                if (onShareCharacterToChat != null) {
+                                    IconButton(
+                                        onClick = { onShareCharacterToChat(char) },
+                                        modifier = Modifier.size(34.dp).testTag("share_char_${char.id}")
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Campaign,
+                                            contentDescription = "Share to Chat",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                                if (onPinCharacter != null) {
+                                    val isPinned = char.id in pinnedCharacterIds
+                                    IconButton(
+                                        onClick = {
+                                            if (isPinned && onUnpinCharacter != null) {
+                                                onUnpinCharacter(char.id)
+                                            } else {
+                                                pinDialogTarget = char
+                                            }
+                                        },
+                                        modifier = Modifier.size(34.dp).testTag("pin_char_${char.id}")
+                                    ) {
+                                        Icon(
+                                            Icons.Default.PushPin,
+                                            contentDescription = if (isPinned) "Unpin Character" else "Pin Character",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = if (isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                             }
                             if (!canEditThis) {
                                 Surface(
@@ -306,7 +383,11 @@ fun EntitiesTab(
         val canEdit = isGmMode || target.ownerId == currentUserId
         CharacterSheetDialog(
             initialCharacter = target,
+            story = story,
+            allCharacters = characters,
+            worldItems = worldItems,
             canEdit = canEdit,
+            isPinned = target.id in pinnedCharacterIds,
             aiState = aiState,
             userSettings = userSettings,
             aiChatState = aiChatState,
@@ -317,6 +398,20 @@ fun EntitiesTab(
             onSendAiChat = onSendAiChat,
             onParseEquipmentAi = onParseEquipmentAi,
             onResetAiState = onResetAiState,
+            onJumpToLocation = { loc ->
+                editingCharacter = null
+                onJumpToLocation(loc)
+            },
+            onShareToChat = onShareCharacterToChat,
+            onPinToggle = if (target.id.isNotBlank() && onPinCharacter != null) {
+                {
+                    if (target.id in pinnedCharacterIds && onUnpinCharacter != null) {
+                        onUnpinCharacter(target.id)
+                    } else {
+                        pinDialogTarget = target
+                    }
+                }
+            } else null,
             onAutoSave = { updated ->
                 onSaveCharacter(updated)
                 editingCharacter = updated
@@ -326,6 +421,18 @@ fun EntitiesTab(
                 editingCharacter = null
             },
             onDismiss = { editingCharacter = null }
+        )
+    }
+
+    if (pinDialogTarget != null && onPinCharacter != null) {
+        PinCharacterDialog(
+            character = pinDialogTarget!!,
+            partyCharacters = characters,
+            messages = messages,
+            onConfirmPin = { targetUid, note ->
+                onPinCharacter(pinDialogTarget!!, targetUid, note)
+            },
+            onDismiss = { pinDialogTarget = null }
         )
     }
 
@@ -351,5 +458,15 @@ fun EntitiesTab(
 
     if (showGuide) {
         IdeaGuideDialog(guideKey = guideKey, onDismiss = { showGuide = false })
+    }
+
+    if (fullScreenImage != null) {
+        val (imgTitle, imgUrl) = fullScreenImage!!
+        FullImageViewerDialog(
+            title = imgTitle,
+            imageUrl = imgUrl,
+            fileNamePrefix = "storyweaver_${kind}",
+            onDismiss = { fullScreenImage = null }
+        )
     }
 }

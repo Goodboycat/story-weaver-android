@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEmotions
@@ -49,6 +50,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +76,7 @@ import com.example.data.WorldItem
 import com.example.ui.components.AiImageGenerateDialog
 import com.example.ui.components.AiImportDialog
 import com.example.ui.components.AllEmojiPickerDialog
+import com.example.ui.components.FullImageViewerDialog
 import com.example.ui.components.IdeaGuideDialog
 import com.example.ui.components.ImagePickerUtil
 import com.example.viewmodel.AiUiState
@@ -83,13 +86,15 @@ import kotlinx.coroutines.launch
 @Composable
 fun WorldListTab(
     story: Story,
-    category: String, // "location" | "power" | "note"
+    category: String, // "location" | "power" | "note" | "item"
     items: List<WorldItem>,
     currentUserId: String,
     isGmMode: Boolean,
     aiState: AiUiState,
     userSettings: UserSettings,
     aiChatState: AiChatUiState,
+    initialSearchQuery: String = "",
+    initialSearchTrigger: Int = 0,
     onSelectAiProvider: (AiProvider) -> Unit,
     onSelectAiModel: (String) -> Unit,
     onSelectAiImageModel: (String) -> Unit,
@@ -100,12 +105,18 @@ fun WorldListTab(
     onDeleteItems: (List<String>) -> Unit,
     onImportAi: (rawText: String, startOrder: Int, useRegex: Boolean, onDone: () -> Unit) -> Unit,
     onResetAiState: () -> Unit,
+    onShareToChat: ((WorldItem) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     val categoryItems = remember(items, category) { items.filter { it.category == category } }
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by remember { mutableStateOf(initialSearchQuery) }
+    LaunchedEffect(initialSearchQuery, initialSearchTrigger) {
+        if (initialSearchTrigger > 0 || initialSearchQuery.isNotBlank()) {
+            searchQuery = initialSearchQuery
+        }
+    }
     val visible = remember(categoryItems, searchQuery) {
         if (searchQuery.isBlank()) categoryItems
         else categoryItems.filter {
@@ -118,17 +129,20 @@ fun WorldListTab(
     var multiSelect by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     var editingItem by remember { mutableStateOf<WorldItem?>(null) }
+    var fullScreenImage by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showAiImport by remember { mutableStateOf(false) }
     var showGuide by remember { mutableStateOf(false) }
 
     val guideKey = when (category) {
         "location" -> "locations"
         "power" -> "powers"
+        "item" -> "items"
         else -> "notes"
     }
     val defaultEmoji = when (category) {
         "location" -> "🏰"
         "power" -> "✨"
+        "item" -> "⚔️"
         else -> "📜"
     }
 
@@ -275,6 +289,9 @@ fun WorldListTab(
                                         modifier = Modifier
                                             .size(44.dp)
                                             .clip(RoundedCornerShape(8.dp))
+                                            .clickable(enabled = !multiSelect && !item.imageUrl.isNullOrBlank()) {
+                                                fullScreenImage = item.title to item.imageUrl!!
+                                            }
                                     )
                                 } else {
                                     Text(item.iconEmoji.ifBlank { defaultEmoji }, style = MaterialTheme.typography.titleLarge)
@@ -291,6 +308,19 @@ fun WorldListTab(
                                             item.subtitle,
                                             style = MaterialTheme.typography.labelMedium,
                                             color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                                if (!multiSelect && onShareToChat != null) {
+                                    IconButton(
+                                        onClick = { onShareToChat(item) },
+                                        modifier = Modifier.testTag("share_world_${item.id}")
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Campaign,
+                                            contentDescription = "Reference in Party Chat",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }
@@ -388,7 +418,12 @@ fun WorldListTab(
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(12.dp))
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable(enabled = !imageUrl.isNullOrBlank()) {
+                                    fullScreenImage = title.ifBlank { category } to imageUrl!!
+                                }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 if (previewBmp != null) {
@@ -434,25 +469,17 @@ fun WorldListTab(
                             ) {
                                 Icon(Icons.Default.EmojiEmotions, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("All Emojis")
+                                Text("All Emojis ($emoji)")
                             }
                         }
                     }
 
                     if (imageUrl != null) {
-                        TextButton(onClick = { imageUrl = null }) { Text("Use Emoji Instead") }
-                    }
-
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("🏰", "🍺", "🌲", "⛰️", "🏛️", "✨", "🔥", "❄️", "⚡", "📜", "👑", "☠️").forEach { em ->
-                            FilterChip(
-                                selected = emoji == em && imageUrl == null,
-                                onClick = {
-                                    emoji = em
-                                    imageUrl = null
-                                },
-                                label = { Text(em) }
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { fullScreenImage = title.ifBlank { category } to imageUrl!! }) {
+                                Text("View / Save Image")
+                            }
+                            TextButton(onClick = { imageUrl = null }) { Text("Use Emoji Instead") }
                         }
                     }
                     OutlinedTextField(
@@ -586,5 +613,15 @@ fun WorldListTab(
 
     if (showGuide) {
         IdeaGuideDialog(guideKey = guideKey, onDismiss = { showGuide = false })
+    }
+
+    if (fullScreenImage != null) {
+        val (imgTitle, imgUrl) = fullScreenImage!!
+        FullImageViewerDialog(
+            title = imgTitle,
+            imageUrl = imgUrl,
+            fileNamePrefix = "storyweaver_${category}",
+            onDismiss = { fullScreenImage = null }
+        )
     }
 }

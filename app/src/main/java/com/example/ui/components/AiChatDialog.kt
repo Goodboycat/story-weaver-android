@@ -5,6 +5,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TextFields
@@ -71,6 +73,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.ai.AiChatMode
 import com.example.ai.AiChatUiState
+import com.example.ai.AiModelDefaults
 import com.example.ai.AiProvider
 import com.example.data.UserSettings
 import kotlinx.coroutines.launch
@@ -89,6 +92,9 @@ fun AiChatDialog(
     onClearError: (() -> Unit)? = null,
     onSelectEndpointUrl: ((String) -> Unit)? = null,
     onSelectApiKey: ((String) -> Unit)? = null,
+    onSelectImageEndpointUrl: ((String) -> Unit)? = null,
+    onSelectImageModel: ((String) -> Unit)? = null,
+    onSelectImageApiKey: ((String) -> Unit)? = null,
     onPostToPartyChat: ((String) -> Unit)? = null,
     onNotify: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
@@ -99,9 +105,18 @@ fun AiChatDialog(
     var chatMode by remember { mutableStateOf(AiChatMode.TEXT) }
     var showModelPicker by remember { mutableStateOf(false) }
     var pendingSafImageDataUrl by remember { mutableStateOf<String?>(null) }
+    var fullScreenImage by remember { mutableStateOf<Pair<String, String>?>(null) }
     var galleryFeedback by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val clipboard = LocalClipboardManager.current
+
+    val lastUserPrompt = remember(aiChatState.messages) {
+        aiChatState.messages.lastOrNull { it.role == "user" }
+            ?.content
+            ?.removePrefix("🎨 [Image] ")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+    }
 
     val safCreateLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("image/png")
@@ -150,8 +165,13 @@ fun AiChatDialog(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            val activeSub = if (chatMode == AiChatMode.IMAGE && onSendImagePrompt != null) {
+                                "Image • ${userSettings.aiImageModel}"
+                            } else {
+                                "${userSettings.aiProvider.label} • ${userSettings.aiModel}"
+                            }
                             Text(
-                                text = "${userSettings.aiProvider.label} • ${userSettings.aiModel}",
+                                text = activeSub,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 maxLines = 1,
@@ -201,6 +221,12 @@ fun AiChatDialog(
                             apiKey = userSettings.aiApiKey,
                             onSelectEndpointUrl = onSelectEndpointUrl,
                             onSelectApiKey = onSelectApiKey,
+                            imageEndpointUrl = userSettings.aiImageEndpointUrl,
+                            imageModel = userSettings.aiImageModel,
+                            imageApiKey = userSettings.aiImageApiKey,
+                            onSelectImageEndpointUrl = onSelectImageEndpointUrl,
+                            onSelectImageModel = onSelectImageModel,
+                            onSelectImageApiKey = onSelectImageApiKey,
                             showAdvancedApiConfig = onSelectEndpointUrl != null || onSelectApiKey != null,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
@@ -256,7 +282,7 @@ fun AiChatDialog(
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                text = "Use Text mode (k-exaone-2.5:free) for lore, parser-ready NPCs/gear, or <svg> artwork in code — or switch to Image mode (gemini-3-pro:free on Unorouter) to generate downloadable images in chat.",
+                                text = "Use Text mode (${AiModelDefaults.DEFAULT_UNOROUTER_MODEL} or gpt-6.1-sol:free) for lore, parser-ready NPCs/gear/locations, or <svg> artwork in code — or switch to Image mode (${AiModelDefaults.DEFAULT_IMAGE_MODEL} on Unorouter) to generate downloadable images in chat.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -300,17 +326,23 @@ fun AiChatDialog(
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
-                                            if (!isUser) {
-                                                IconButton(
-                                                    onClick = { clipboard.setText(AnnotatedString(msg.content)) },
-                                                    modifier = Modifier.size(32.dp)
-                                                ) {
-                                                    Icon(
-                                                        Icons.Default.ContentCopy,
-                                                        contentDescription = "Copy reply",
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
+                                            IconButton(
+                                                onClick = {
+                                                    val copyText = if (isUser) {
+                                                        msg.content.removePrefix("🎨 [Image] ").trim()
+                                                    } else {
+                                                        msg.content
+                                                    }
+                                                    clipboard.setText(AnnotatedString(copyText))
+                                                    galleryFeedback = if (isUser) "Copied prompt to clipboard." else "Copied reply to clipboard."
+                                                },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.ContentCopy,
+                                                    contentDescription = if (isUser) "Copy prompt" else "Copy reply",
+                                                    modifier = Modifier.size(16.dp)
+                                                )
                                             }
                                         }
 
@@ -323,10 +355,13 @@ fun AiChatDialog(
                                                     .fillMaxWidth()
                                                     .clip(MaterialTheme.shapes.medium)
                                                     .background(MaterialTheme.colorScheme.surface)
+                                                    .clickable {
+                                                        fullScreenImage = "AI Artwork" to msg.imageDataUrl
+                                                    }
                                             ) {
                                                 Image(
                                                     bitmap = msgBitmap.asImageBitmap(),
-                                                    contentDescription = "Generated AI image",
+                                                    contentDescription = "Generated AI image — tap to enlarge",
                                                     contentScale = ContentScale.Fit,
                                                     modifier = Modifier
                                                         .fillMaxWidth()
@@ -394,7 +429,7 @@ fun AiChatDialog(
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Text(
                             text = if (chatMode == AiChatMode.IMAGE) {
-                                "Generating image with ${userSettings.aiModel}..."
+                                "Generating image with ${userSettings.aiImageModel}..."
                             } else {
                                 "Thinking with ${userSettings.aiModel}..."
                             },
@@ -404,7 +439,7 @@ fun AiChatDialog(
                     }
                 }
 
-                if (onSendImagePrompt != null) {
+                if (onSendImagePrompt != null || lastUserPrompt != null) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -412,27 +447,38 @@ fun AiChatDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        FilterChip(
-                            selected = chatMode == AiChatMode.TEXT,
-                            onClick = { chatMode = AiChatMode.TEXT },
-                            leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            label = { Text("Text") },
-                            modifier = Modifier.testTag("ai_chat_mode_text")
-                        )
-                        FilterChip(
-                            selected = chatMode == AiChatMode.IMAGE,
-                            onClick = { chatMode = AiChatMode.IMAGE },
-                            leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            label = { Text("Image") },
-                            modifier = Modifier.testTag("ai_chat_mode_image")
-                        )
-                        Text(
-                            text = if (chatMode == AiChatMode.IMAGE) "Image API mode" else "Text / SVG code mode",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        if (onSendImagePrompt != null) {
+                            FilterChip(
+                                selected = chatMode == AiChatMode.TEXT,
+                                onClick = { chatMode = AiChatMode.TEXT },
+                                leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                label = { Text("Text") },
+                                modifier = Modifier.testTag("ai_chat_mode_text")
+                            )
+                            FilterChip(
+                                selected = chatMode == AiChatMode.IMAGE,
+                                onClick = { chatMode = AiChatMode.IMAGE },
+                                leadingIcon = { Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                label = { Text("Image") },
+                                modifier = Modifier.testTag("ai_chat_mode_image")
+                            )
+                        }
+                        if (lastUserPrompt != null) {
+                            Spacer(Modifier.weight(1f))
+                            OutlinedButton(
+                                onClick = {
+                                    draft = lastUserPrompt
+                                    clipboard.setText(AnnotatedString(lastUserPrompt))
+                                    galleryFeedback = "Loaded & copied last prompt."
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.testTag("reuse_last_prompt_button")
+                            ) {
+                                Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Last Prompt", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
                     }
                 }
 
@@ -522,6 +568,19 @@ fun AiChatDialog(
                 ) {
                     Text("Dismiss")
                 }
+            }
+        )
+    }
+
+    fullScreenImage?.let { (imgTitle, imgUrl) ->
+        FullImageViewerDialog(
+            title = imgTitle,
+            imageUrl = imgUrl,
+            fileNamePrefix = "storyweaver_ai",
+            onDismiss = { fullScreenImage = null },
+            onNotify = { msg ->
+                galleryFeedback = msg
+                onNotify?.invoke(msg)
             }
         )
     }

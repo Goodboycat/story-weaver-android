@@ -79,6 +79,7 @@
         "avatarEmoji": { "type": "string", "description": "Avatar emoji." },
         "avatarUrl": { "type": "string", "description": "Optional avatar image URI." },
         "roleTitle": { "type": "string", "description": "Class, ancestry, or creature role." },
+        "locationName": { "type": "string", "description": "Optional home or current location name." },
         "level": { "type": "integer", "description": "Character level or CR." },
         "hpCurrent": { "type": "integer", "description": "Current hit points." },
         "hpMax": { "type": "integer", "description": "Maximum hit points." },
@@ -117,14 +118,14 @@
     },
     "WorldItem": {
       "title": "WorldItem",
-      "description": "Campaign Location, Power, or Note card created by the GM.",
+      "description": "Campaign Location, Power, Item, or Note card created by the GM.",
       "type": "object",
       "properties": {
         "storyId": { "type": "string", "description": "Parent story ID." },
         "gmUserId": { "type": "string", "description": "Campaign GM UID." },
         "ownerId": { "type": "string", "description": "Creator UID." },
         "memberUids": { "type": "array", "description": "Denormalized campaign member UIDs." },
-        "category": { "type": "string", "enum": ["location", "power", "note"], "description": "Item category." },
+        "category": { "type": "string", "enum": ["location", "power", "note", "item"], "description": "Item category." },
         "title": { "type": "string", "description": "Card title." },
         "subtitle": { "type": "string", "description": "Card subtitle or type." },
         "description": { "type": "string", "description": "Detailed description." },
@@ -172,7 +173,7 @@
     },
     "ChatMessage": {
       "title": "ChatMessage",
-      "description": "Real-time party chat message or roll broadcast.",
+      "description": "Real-time party chat message, dice roll, pinned character alert, or rich entity reference.",
       "type": "object",
       "properties": {
         "storyId": { "type": "string", "description": "Parent story ID." },
@@ -182,7 +183,23 @@
         "senderName": { "type": "string", "description": "Sender display name." },
         "senderRole": { "type": "string", "description": "GM or Player label." },
         "body": { "type": "string", "description": "Message text." },
-        "messageType": { "type": "string", "enum": ["chat", "roll", "system"], "description": "Message kind." },
+        "messageType": { "type": "string", "enum": ["chat", "roll", "system", "pin", "ref"], "description": "Message kind." },
+        "replyToMessageId": { "type": "string", "description": "Optional referenced parent message ID." },
+        "replyToSenderName": { "type": "string", "description": "Optional referenced parent sender name." },
+        "replyToSnippet": { "type": "string", "description": "Optional quoted snippet of referenced message." },
+        "refType": { "type": "string", "description": "Optional entity category: power, location, item, note, player, npc, monster." },
+        "refId": { "type": "string", "description": "Optional referenced document ID." },
+        "refTitle": { "type": "string", "description": "Optional referenced entity title." },
+        "refSubtitle": { "type": "string", "description": "Optional referenced entity subtitle." },
+        "refEmoji": { "type": "string", "description": "Optional referenced entity emoji." },
+        "refDescription": { "type": "string", "description": "Optional referenced entity description." },
+        "refTagsJson": { "type": "string", "description": "Optional serialized JSON array of tags." },
+        "pinned": { "type": "boolean", "description": "Whether message or character card is pinned." },
+        "pinnedBy": { "type": "string", "description": "UID that pinned the message." },
+        "targetUserId": { "type": "string", "description": "Target player UID notified by character pin." },
+        "targetCharacterId": { "type": "string", "description": "Pinned character document ID." },
+        "targetCharacterName": { "type": "string", "description": "Pinned character display name." },
+        "reactionsJson": { "type": "string", "description": "Serialized emoji reaction map JSON." },
         "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp." }
       },
       "required": ["storyId", "gmUserId", "memberUids", "senderId", "senderName", "senderRole", "body", "messageType", "createdAt"]
@@ -223,7 +240,7 @@
     },
     "/stories/{storyId}/world_items/{itemId}": {
       "schema": { "$ref": "#/entities/WorldItem" },
-      "description": "Campaign locations, powers, and notes."
+      "description": "Campaign locations, powers, items, and notes."
     },
     "/stories/{storyId}/rolls/{rollId}": {
       "schema": { "$ref": "#/entities/DiceRoll" },

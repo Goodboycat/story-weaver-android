@@ -98,6 +98,7 @@ import com.example.data.QuickMapAsset
 import com.example.data.QuickMapBlock
 import com.example.data.Story
 import com.example.data.UserSettings
+import com.example.data.sanitizeMapEmoji
 import com.example.ui.components.AllEmojiPickerDialog
 import com.example.ui.components.IdeaGuideDialog
 import com.example.ui.components.ImagePickerUtil
@@ -127,8 +128,6 @@ private data class AiMapUndoSnapshot(
     val summary: String,
     val scriptJson: String,
 )
-
-private val QUICK_MAP_EMOJIS = listOf("🌲", "⛰️", "🌊", "🔥", "🧱", "🚪", "💎", "☠️", "🕳️", "🏰")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -602,18 +601,8 @@ fun GridMapTab(
                             label = { Text("Color Only", style = MaterialTheme.typography.labelSmall) },
                             modifier = Modifier.testTag("map_overlay_none")
                         )
-                        QUICK_MAP_EMOJIS.forEach { em ->
-                            FilterChip(
-                                selected = selectedEmoji == em && selectedAssetBase64 == null,
-                                onClick = {
-                                    selectedEmoji = if (selectedEmoji == em) null else em
-                                    selectedAssetBase64 = null
-                                },
-                                label = { Text(em) }
-                            )
-                        }
                         FilterChip(
-                            selected = selectedEmoji != null && selectedEmoji !in QUICK_MAP_EMOJIS && selectedAssetBase64 == null,
+                            selected = selectedEmoji != null && selectedAssetBase64 == null,
                             onClick = { showMapEmojiPicker = true },
                             leadingIcon = {
                                 Icon(Icons.Default.EmojiEmotions, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -936,7 +925,8 @@ fun GridMapTab(
                         val gx = parts.getOrNull(0)?.toIntOrNull() ?: return@forEach
                         val gy = parts.getOrNull(1)?.toIntOrNull() ?: return@forEach
                         if (gx !in 0 until width || gy !in 0 until height) return@forEach
-                        if (cell.imageBase64 != null || cell.emoji != null) {
+                        val cleanCellEmoji = remember(cell.emoji) { sanitizeMapEmoji(cell.emoji) }
+                        if (cell.imageBase64 != null || cleanCellEmoji != null) {
                             Box(
                                 modifier = Modifier
                                     .offset { IntOffset((gx * baseCellPx).roundToInt(), (gy * baseCellPx).roundToInt()) }
@@ -954,8 +944,8 @@ fun GridMapTab(
                                             .padding(if (cell.colorHex != null) 3.dp else 0.dp)
                                             .clip(MaterialTheme.shapes.extraSmall)
                                     )
-                                } else if (cell.emoji != null) {
-                                    Text(text = cell.emoji, fontSize = 18.sp)
+                                } else if (cleanCellEmoji != null) {
+                                    Text(text = cleanCellEmoji, fontSize = 18.sp)
                                 }
                             }
                         }
@@ -1353,6 +1343,7 @@ private fun CompositeBlockPreview(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
+        val cleanEmoji = remember(emoji) { sanitizeMapEmoji(emoji) }
         if (bmp != null) {
             Image(
                 bitmap = bmp.asImageBitmap(),
@@ -1363,8 +1354,8 @@ private fun CompositeBlockPreview(
                     .padding(if (colorHex != null) 3.dp else 0.dp)
                     .clip(MaterialTheme.shapes.extraSmall)
             )
-        } else if (emoji != null) {
-            Text(text = emoji, fontSize = 19.sp)
+        } else if (cleanEmoji != null) {
+            Text(text = cleanEmoji, fontSize = 19.sp)
         }
     }
 }

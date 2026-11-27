@@ -491,6 +491,7 @@ class StoryRepository(
                     put("avatarEmoji", character.avatarEmoji.take(16))
                     character.avatarUrl?.take(250_000)?.let { put("avatarUrl", it) }
                     put("roleTitle", character.roleTitle.take(100))
+                    put("locationName", character.locationName.trim().take(120))
                     put("level", character.level.coerceIn(0L, 999L))
                     put("hpCurrent", character.hpCurrent.coerceIn(-999L, 99_999L))
                     put("hpMax", character.hpMax.coerceIn(0L, 99_999L))
@@ -519,6 +520,7 @@ class StoryRepository(
                     "avatarEmoji" to character.avatarEmoji.take(16),
                     "avatarUrl" to character.avatarUrl?.take(250_000),
                     "roleTitle" to character.roleTitle.take(100),
+                    "locationName" to character.locationName.trim().take(120),
                     "level" to character.level.coerceIn(0L, 999L),
                     "hpCurrent" to character.hpCurrent.coerceIn(-999L, 99_999L),
                     "hpMax" to character.hpMax.coerceIn(0L, 99_999L),
@@ -837,32 +839,152 @@ class StoryRepository(
         senderRole: String,
         body: String,
         messageType: String = "chat",
-    ): Result<Unit> {
+        senderNameOverride: String? = null,
+        replyToMessageId: String = "",
+        replyToSenderName: String = "",
+        replyToSnippet: String = "",
+        entityRef: ChatEntityRef? = null,
+        pinned: Boolean = false,
+        targetUserId: String = "",
+        targetCharacterId: String = "",
+        targetCharacterName: String = "",
+    ): Result<String> {
         val msgId = "mg_${UUID.randomUUID().toString().replace("-", "").take(16)}"
         val path = "stories/${story.id}/messages/$msgId"
         return try {
             val uid = requireUserId()
-            val cleanBody = body.trim().take(2000)
+            val fallbackBody = when {
+                body.isNotBlank() -> body
+                pinned && targetCharacterName.isNotBlank() -> "📌 Pinned character: $targetCharacterName"
+                entityRef != null -> "${entityRef.emoji.ifBlank { "📚" }} ${entityRef.title}"
+                else -> ""
+            }
+            val cleanBody = fallbackBody.trim().take(2000)
             require(cleanBody.isNotEmpty()) { "Message cannot be empty." }
-            val payload = mapOf(
-                "storyId" to story.id,
-                "gmUserId" to story.gmUserId,
-                "memberUids" to story.memberUids.ifEmpty { listOf(uid) },
-                "senderId" to uid,
-                "senderName" to requireDisplayName().take(80),
-                "senderRole" to senderRole.take(30),
-                "body" to cleanBody,
-                "messageType" to messageType,
-                "createdAt" to FieldValue.serverTimestamp(),
-            )
+            val resolvedSender = senderNameOverride?.trim()?.takeIf { it.isNotBlank() } ?: requireDisplayName()
+            val payload = buildMap<String, Any> {
+                put("storyId", story.id)
+                put("gmUserId", story.gmUserId)
+                put("memberUids", story.memberUids.ifEmpty { listOf(uid) })
+                put("senderId", uid)
+                put("senderName", resolvedSender.take(80))
+                put("senderRole", senderRole.take(30))
+                put("body", cleanBody)
+                put("messageType", messageType)
+                if (replyToMessageId.isNotBlank()) put("replyToMessageId", replyToMessageId.take(128))
+                if (replyToSenderName.isNotBlank()) put("replyToSenderName", replyToSenderName.take(80))
+                if (replyToSnippet.isNotBlank()) put("replyToSnippet", replyToSnippet.take(240))
+                if (entityRef != null) {
+                    put("refType", entityRef.refType.take(24))
+                    if (entityRef.refId.isNotBlank()) put("refId", entityRef.refId.take(128))
+                    put("refTitle", entityRef.title.take(140))
+                    if (entityRef.subtitle.isNotBlank()) put("refSubtitle", entityRef.subtitle.take(160))
+                    if (entityRef.emoji.isNotBlank()) put("refEmoji", entityRef.emoji.take(16))
+                    if (entityRef.description.isNotBlank()) put("refDescription", entityRef.description.take(2000))
+                    if (entityRef.tags.isNotEmpty()) {
+                        put("refTagsJson", JsonCodecs.encodeStringList(entityRef.tags).take(1000))
+                    }
+                }
+                if (pinned) {
+                    put("pinned", true)
+                    put("pinnedBy", uid)
+                }
+                if (targetUserId.isNotBlank()) put("targetUserId", targetUserId.take(128))
+                if (targetCharacterId.isNotBlank()) put("targetCharacterId", targetCharacterId.take(128))
+                if (targetCharacterName.isNotBlank()) put("targetCharacterName", targetCharacterName.take(100))
+                put("createdAt", FieldValue.serverTimestamp())
+            }
             db.collection("stories").document(story.id)
                 .collection("messages").document(msgId)
                 .set(payload).await()
-            Result.success(Unit)
+            Result.success(msgId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.CREATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun togglePinMessage(
+        story: Story,
+        message: ChatMessage,
+        pinned: Boolean,
+        targetUserId: String = message.targetUserId,
+        targetCharacterId: String = message.targetCharacterId,
+        targetCharacterName: String = message.targetCharacterName,
+    ): Result<Unit> {
+        val path = "stories/${story.id}/messages/${message.id}"
+        return try {
+            val uid = requireUserId()
+            db.collection("stories").document(story.id)
+                .collection("messages").document(message.id)
+                .update(
+                    mapOf(
+                        "pinned" to pinned,
+                        "pinnedBy" to if (pinned) uid else "",
+                        "targetUserId" to targetUserId.take(128),
+                        "targetCharacterId" to targetCharacterId.take(128),
+                        "targetCharacterName" to targetCharacterName.take(100),
+                    )
+                ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun toggleMessageReaction(
+        story: Story,
+        message: ChatMessage,
+        emoji: String,
+    ): Result<Unit> {
+        val cleanEmoji = emoji.trim().take(16)
+        if (cleanEmoji.isBlank()) return Result.success(Unit)
+        val path = "stories/${story.id}/messages/${message.id}"
+        return try {
+            val uid = requireUserId()
+            val current = JsonCodecs.decodeReactions(message.reactionsJson).toMutableMap()
+            val existingUsers = current[cleanEmoji].orEmpty().toMutableList()
+            if (uid in existingUsers) {
+                existingUsers.removeAll { it == uid }
+            } else {
+                existingUsers.add(uid)
+            }
+            if (existingUsers.isEmpty()) {
+                current.remove(cleanEmoji)
+            } else {
+                current[cleanEmoji] = existingUsers
+            }
+            val nextJson = JsonCodecs.encodeReactions(current).take(20_000)
+            db.collection("stories").document(story.id)
+                .collection("messages").document(message.id)
+                .update("reactionsJson", nextJson)
+                .await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteMessage(story: Story, messageId: String): Result<Unit> {
+        val path = "stories/${story.id}/messages/$messageId"
+        return try {
+            requireUserId()
+            db.collection("stories").document(story.id)
+                .collection("messages").document(messageId)
+                .delete().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, path)
             Result.failure(e)
         }
     }

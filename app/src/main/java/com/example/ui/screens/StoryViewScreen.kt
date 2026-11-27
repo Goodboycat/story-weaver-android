@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
@@ -32,8 +33,12 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -50,6 +55,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -83,12 +89,14 @@ import com.example.ui.tabs.GridMapTab
 import com.example.ui.tabs.GuideTab
 import com.example.ui.tabs.LogsTab
 import com.example.ui.tabs.WorldListTab
+import com.example.ui.tabs.characterToEntityRef
+import com.example.ui.tabs.worldItemToEntityRef
 import com.example.viewmodel.AiMapUiState
 import com.example.viewmodel.StoryViewModel
 import com.example.viewmodel.UiState
 
 private enum class StoryTabId {
-    GUIDE, PLAYERS, NPCS, MONSTERS, MAP, LOCATIONS, POWERS, NOTES, CHAT, LOGS
+    GUIDE, PLAYERS, NPCS, MONSTERS, MAP, LOCATIONS, ITEMS, POWERS, NOTES, CHAT, LOGS
 }
 
 private data class StoryTabSpec(
@@ -126,6 +134,10 @@ fun StoryViewScreen(
     var showDiceRoller by remember { mutableStateOf(false) }
     var showScheduleDialog by remember { mutableStateOf(false) }
     var showAiChat by remember { mutableStateOf(false) }
+    var locationJumpQuery by remember { mutableStateOf("") }
+    var locationJumpTrigger by remember { mutableIntStateOf(0) }
+    var focusChatMessageId by remember { mutableStateOf<String?>(null) }
+    var dismissedPinIds by remember { mutableStateOf(setOf<String>()) }
 
     LaunchedEffect(toastMessage) {
         toastMessage?.let {
@@ -135,6 +147,7 @@ fun StoryViewScreen(
     }
 
     val story = (storyState as? UiState.Success)?.data
+    var seenPinIds by remember(story?.id) { mutableStateOf<Set<String>?>(null) }
     LaunchedEffect(story?.id, story?.memberUids) {
         if (story != null) {
             viewModel.onStoryObserved(story)
@@ -157,9 +170,10 @@ fun StoryViewScreen(
                 StoryTabSpec(StoryTabId.PLAYERS, strings.tabPlayers, Icons.Default.Person),
                 StoryTabSpec(StoryTabId.NPCS, strings.tabNpcs, Icons.Default.Groups),
                 StoryTabSpec(StoryTabId.MONSTERS, strings.tabMonsters, Icons.Default.BugReport),
-                StoryTabSpec(StoryTabId.MAP, strings.tabMap, Icons.Default.Map),
                 StoryTabSpec(StoryTabId.LOCATIONS, strings.tabLocations, Icons.Default.Place),
                 StoryTabSpec(StoryTabId.POWERS, strings.tabPowers, Icons.Default.AutoAwesome),
+                StoryTabSpec(StoryTabId.MAP, strings.tabMap, Icons.Default.Map),
+                StoryTabSpec(StoryTabId.ITEMS, strings.tabItems, Icons.Default.Build),
                 StoryTabSpec(StoryTabId.NOTES, strings.tabNotes, Icons.Default.Description),
                 StoryTabSpec(StoryTabId.CHAT, strings.tabChat, Icons.AutoMirrored.Filled.Chat),
                 StoryTabSpec(StoryTabId.LOGS, strings.tabLogs, Icons.Default.History),
@@ -183,6 +197,41 @@ fun StoryViewScreen(
     val rolls = (rollsState as? UiState.Success)?.data ?: emptyList()
     val messages = (messagesState as? UiState.Success)?.data ?: emptyList()
     val logs = (logsState as? UiState.Success)?.data ?: emptyList()
+
+    val pinnedCharacterIds = remember(messages) {
+        messages.filter { it.pinned && it.targetCharacterId.isNotBlank() }
+            .map { it.targetCharacterId }
+            .toSet()
+    }
+    val myTargetedPins = remember(messages, viewModel.currentUserId) {
+        messages.filter {
+            it.pinned &&
+                it.targetUserId == viewModel.currentUserId &&
+                it.targetCharacterName.isNotBlank()
+        }
+    }
+    LaunchedEffect(story?.id, myTargetedPins) {
+        val currentIds = myTargetedPins.map { it.id }.toSet()
+        val previous = seenPinIds
+        if (previous == null) {
+            seenPinIds = currentIds
+        } else {
+            val newlyArrived = myTargetedPins.filter { it.id !in previous }
+            seenPinIds = currentIds
+            newlyArrived.lastOrNull()?.let { pin ->
+                if (story != null) {
+                    SessionNotificationScheduler.showPinnedCharacterNotification(
+                        context = context,
+                        storyId = story.id,
+                        storyTitle = story.title,
+                        characterName = pin.targetCharacterName,
+                        messageBody = pin.body,
+                    )
+                    viewModel.showToast("📌 ${pin.targetCharacterName} was pinned in Chat!")
+                }
+            }
+        }
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
@@ -308,6 +357,28 @@ fun StoryViewScreen(
                         Text("Campaign not found or removed.")
                     }
                 } else {
+                    val activePinAlert = myTargetedPins.lastOrNull { it.id !in dismissedPinIds }
+                    fun handleJumpToEntityTab(refType: String, query: String) {
+                        val targetId = when (refType) {
+                            "location" -> StoryTabId.LOCATIONS
+                            "power" -> StoryTabId.POWERS
+                            "item" -> StoryTabId.ITEMS
+                            "note" -> StoryTabId.NOTES
+                            "player" -> StoryTabId.PLAYERS
+                            "npc" -> StoryTabId.NPCS
+                            "monster" -> StoryTabId.MONSTERS
+                            else -> null
+                        } ?: return
+                        val idx = tabs.indexOfFirst { it.id == targetId }
+                        if (idx >= 0) {
+                            if (refType == "location") {
+                                locationJumpQuery = query
+                                locationJumpTrigger++
+                            }
+                            selectedTabIndex = idx
+                        }
+                    }
+
                     BoxWithConstraints(
                         modifier = Modifier.fillMaxSize().padding(innerPadding)
                     ) {
@@ -318,34 +389,75 @@ fun StoryViewScreen(
                                     modifier = Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
                                 ) {
                                     tabs.forEachIndexed { idx, spec ->
+                                        val pinCount = if (spec.id == StoryTabId.CHAT) myTargetedPins.size else 0
                                         NavigationRailItem(
                                             selected = safeIndex == idx,
                                             onClick = { selectedTabIndex = idx },
-                                            icon = { Icon(spec.icon, contentDescription = spec.label) },
+                                            icon = {
+                                                if (pinCount > 0) {
+                                                    BadgedBox(badge = { Badge { Text(pinCount.toString()) } }) {
+                                                        Icon(spec.icon, contentDescription = spec.label)
+                                                    }
+                                                } else {
+                                                    Icon(spec.icon, contentDescription = spec.label)
+                                                }
+                                            },
                                             label = { Text(spec.label) },
                                             modifier = Modifier.testTag("story_tab_${spec.id.name.lowercase()}")
                                         )
                                     }
                                 }
-                                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                                    StoryTabContent(
-                                        tabId = activeTab.id,
-                                        story = loadedStory,
-                                        strings = strings,
-                                        isGmMode = isGmMode,
-                                        viewModel = viewModel,
-                                        characters = characters,
-                                        worldItems = worldItems,
-                                        messages = messages,
-                                        logs = logs,
-                                        quickAssets = quickAssets,
-                                        quickBlocks = quickBlocks,
-                                        aiState = aiState,
-                                        aiMapState = aiMapState,
-                                        userSettings = userSettings,
-                                        aiChatState = aiChatState,
-                                        onOpenAiChat = { showAiChat = true },
-                                    )
+                                Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                    if (activeTab.id != StoryTabId.CHAT && activePinAlert != null) {
+                                        TargetedPinAlertBanner(
+                                            characterName = activePinAlert.targetCharacterName,
+                                            onViewInChat = {
+                                                val chatIdx = tabs.indexOfFirst { it.id == StoryTabId.CHAT }
+                                                if (chatIdx >= 0) {
+                                                    focusChatMessageId = activePinAlert.id
+                                                    selectedTabIndex = chatIdx
+                                                }
+                                            },
+                                            onDismiss = {
+                                                dismissedPinIds = dismissedPinIds + activePinAlert.id
+                                            }
+                                        )
+                                    }
+                                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                        StoryTabContent(
+                                            tabId = activeTab.id,
+                                            story = loadedStory,
+                                            strings = strings,
+                                            isGmMode = isGmMode,
+                                            userDisplayName = userDisplayName,
+                                            viewModel = viewModel,
+                                            characters = characters,
+                                            worldItems = worldItems,
+                                            messages = messages,
+                                            pinnedCharacterIds = pinnedCharacterIds,
+                                            logs = logs,
+                                            quickAssets = quickAssets,
+                                            quickBlocks = quickBlocks,
+                                            aiState = aiState,
+                                            aiMapState = aiMapState,
+                                            userSettings = userSettings,
+                                            aiChatState = aiChatState,
+                                            locationJumpQuery = locationJumpQuery,
+                                            locationJumpTrigger = locationJumpTrigger,
+                                            focusChatMessageId = focusChatMessageId,
+                                            onConsumeFocusMessage = { focusChatMessageId = null },
+                                            onJumpToLocation = { loc ->
+                                                val locIdx = tabs.indexOfFirst { it.id == StoryTabId.LOCATIONS }
+                                                if (locIdx >= 0) {
+                                                    locationJumpQuery = loc
+                                                    locationJumpTrigger++
+                                                    selectedTabIndex = locIdx
+                                                }
+                                            },
+                                            onJumpToEntityTab = ::handleJumpToEntityTab,
+                                            onOpenAiChat = { showAiChat = true },
+                                        )
+                                    }
                                 }
                             }
                         } else {
@@ -355,14 +467,38 @@ fun StoryViewScreen(
                                     edgePadding = 8.dp
                                 ) {
                                     tabs.forEachIndexed { idx, spec ->
+                                        val pinCount = if (spec.id == StoryTabId.CHAT) myTargetedPins.size else 0
                                         Tab(
                                             selected = safeIndex == idx,
                                             onClick = { selectedTabIndex = idx },
-                                            icon = { Icon(spec.icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                            icon = {
+                                                if (pinCount > 0) {
+                                                    BadgedBox(badge = { Badge { Text(pinCount.toString()) } }) {
+                                                        Icon(spec.icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                    }
+                                                } else {
+                                                    Icon(spec.icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                }
+                                            },
                                             text = { Text(spec.label) },
                                             modifier = Modifier.testTag("story_tab_${spec.id.name.lowercase()}")
                                         )
                                     }
+                                }
+                                if (activeTab.id != StoryTabId.CHAT && activePinAlert != null) {
+                                    TargetedPinAlertBanner(
+                                        characterName = activePinAlert.targetCharacterName,
+                                        onViewInChat = {
+                                            val chatIdx = tabs.indexOfFirst { it.id == StoryTabId.CHAT }
+                                            if (chatIdx >= 0) {
+                                                focusChatMessageId = activePinAlert.id
+                                                selectedTabIndex = chatIdx
+                                            }
+                                        },
+                                        onDismiss = {
+                                            dismissedPinIds = dismissedPinIds + activePinAlert.id
+                                        }
+                                    )
                                 }
                                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                                     StoryTabContent(
@@ -370,10 +506,12 @@ fun StoryViewScreen(
                                         story = loadedStory,
                                         strings = strings,
                                         isGmMode = isGmMode,
+                                        userDisplayName = userDisplayName,
                                         viewModel = viewModel,
                                         characters = characters,
                                         worldItems = worldItems,
                                         messages = messages,
+                                        pinnedCharacterIds = pinnedCharacterIds,
                                         logs = logs,
                                         quickAssets = quickAssets,
                                         quickBlocks = quickBlocks,
@@ -381,6 +519,19 @@ fun StoryViewScreen(
                                         aiMapState = aiMapState,
                                         userSettings = userSettings,
                                         aiChatState = aiChatState,
+                                        locationJumpQuery = locationJumpQuery,
+                                        locationJumpTrigger = locationJumpTrigger,
+                                        focusChatMessageId = focusChatMessageId,
+                                        onConsumeFocusMessage = { focusChatMessageId = null },
+                                        onJumpToLocation = { loc ->
+                                            val locIdx = tabs.indexOfFirst { it.id == StoryTabId.LOCATIONS }
+                                            if (locIdx >= 0) {
+                                                locationJumpQuery = loc
+                                                locationJumpTrigger++
+                                                selectedTabIndex = locIdx
+                                            }
+                                        },
+                                        onJumpToEntityTab = ::handleJumpToEntityTab,
                                         onOpenAiChat = { showAiChat = true },
                                     )
                                 }
@@ -416,6 +567,9 @@ fun StoryViewScreen(
             onSelectModel = { viewModel.setAiModel(it) },
             onSelectEndpointUrl = { viewModel.setAiEndpointUrl(it) },
             onSelectApiKey = { viewModel.setAiApiKey(it) },
+            onSelectImageEndpointUrl = { viewModel.setAiImageEndpointUrl(it) },
+            onSelectImageModel = { viewModel.setAiImageModel(it) },
+            onSelectImageApiKey = { viewModel.setAiImageApiKey(it) },
             onPostToPartyChat = { reply ->
                 viewModel.sendChatMessage(story, "🤖 AI (${userSettings.aiModel}):\n$reply")
             },
@@ -448,15 +602,57 @@ fun StoryViewScreen(
 }
 
 @Composable
+private fun TargetedPinAlertBanner(
+    characterName: String,
+    onViewInChat: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        tonalElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth().testTag("targeted_pin_alert_banner")
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                Icons.Default.PushPin,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+            Text(
+                text = "Your character \"$characterName\" was pinned in Chat!",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onViewInChat) {
+                Text("View")
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
 private fun StoryTabContent(
     tabId: StoryTabId,
     story: com.example.data.Story,
     strings: AppStrings,
     isGmMode: Boolean,
+    userDisplayName: String,
     viewModel: StoryViewModel,
     characters: List<com.example.data.Character>,
     worldItems: List<com.example.data.WorldItem>,
     messages: List<com.example.data.ChatMessage>,
+    pinnedCharacterIds: Set<String>,
     logs: List<com.example.data.ActivityLog>,
     quickAssets: List<com.example.data.QuickMapAsset>,
     quickBlocks: List<QuickMapBlock>,
@@ -464,6 +660,12 @@ private fun StoryTabContent(
     aiMapState: AiMapUiState,
     userSettings: UserSettings,
     aiChatState: AiChatUiState,
+    locationJumpQuery: String,
+    locationJumpTrigger: Int,
+    focusChatMessageId: String?,
+    onConsumeFocusMessage: () -> Unit,
+    onJumpToLocation: (String) -> Unit,
+    onJumpToEntityTab: (String, String) -> Unit,
     onOpenAiChat: () -> Unit,
 ) {
     when (tabId) {
@@ -476,6 +678,9 @@ private fun StoryTabContent(
             story = story,
             kind = "player",
             characters = characters,
+            worldItems = worldItems,
+            messages = messages,
+            pinnedCharacterIds = pinnedCharacterIds,
             currentUserId = viewModel.currentUserId,
             isGmMode = isGmMode,
             aiState = aiState,
@@ -494,12 +699,19 @@ private fun StoryTabContent(
                 viewModel.importCharactersWithAi(story, raw, "player", regex, done)
             },
             onParseEquipmentAi = { raw, onParsed -> viewModel.parseEquipmentWithAi(raw, onParsed) },
-            onResetAiState = { viewModel.resetAiState() }
+            onResetAiState = { viewModel.resetAiState() },
+            onJumpToLocation = onJumpToLocation,
+            onShareCharacterToChat = { ch -> viewModel.shareEntityToChat(story, characterToEntityRef(ch)) },
+            onPinCharacter = { ch, uid, note -> viewModel.pinCharacterToChat(story, ch, uid, note) },
+            onUnpinCharacter = { chId -> viewModel.unpinCharacterFromChat(story, chId) },
         )
         StoryTabId.NPCS -> EntitiesTab(
             story = story,
             kind = "npc",
             characters = characters,
+            worldItems = worldItems,
+            messages = messages,
+            pinnedCharacterIds = pinnedCharacterIds,
             currentUserId = viewModel.currentUserId,
             isGmMode = isGmMode,
             aiState = aiState,
@@ -518,12 +730,19 @@ private fun StoryTabContent(
                 viewModel.importCharactersWithAi(story, raw, "npc", regex, done)
             },
             onParseEquipmentAi = { raw, onParsed -> viewModel.parseEquipmentWithAi(raw, onParsed) },
-            onResetAiState = { viewModel.resetAiState() }
+            onResetAiState = { viewModel.resetAiState() },
+            onJumpToLocation = onJumpToLocation,
+            onShareCharacterToChat = { ch -> viewModel.shareEntityToChat(story, characterToEntityRef(ch)) },
+            onPinCharacter = { ch, uid, note -> viewModel.pinCharacterToChat(story, ch, uid, note) },
+            onUnpinCharacter = { chId -> viewModel.unpinCharacterFromChat(story, chId) },
         )
         StoryTabId.MONSTERS -> EntitiesTab(
             story = story,
             kind = "monster",
             characters = characters,
+            worldItems = worldItems,
+            messages = messages,
+            pinnedCharacterIds = pinnedCharacterIds,
             currentUserId = viewModel.currentUserId,
             isGmMode = isGmMode,
             aiState = aiState,
@@ -542,7 +761,63 @@ private fun StoryTabContent(
                 viewModel.importCharactersWithAi(story, raw, "monster", regex, done)
             },
             onParseEquipmentAi = { raw, onParsed -> viewModel.parseEquipmentWithAi(raw, onParsed) },
-            onResetAiState = { viewModel.resetAiState() }
+            onResetAiState = { viewModel.resetAiState() },
+            onJumpToLocation = onJumpToLocation,
+            onShareCharacterToChat = { ch -> viewModel.shareEntityToChat(story, characterToEntityRef(ch)) },
+            onPinCharacter = { ch, uid, note -> viewModel.pinCharacterToChat(story, ch, uid, note) },
+            onUnpinCharacter = { chId -> viewModel.unpinCharacterFromChat(story, chId) },
+        )
+        StoryTabId.LOCATIONS -> WorldListTab(
+            story = story,
+            category = "location",
+            items = worldItems,
+            currentUserId = viewModel.currentUserId,
+            isGmMode = isGmMode,
+            aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            initialSearchQuery = locationJumpQuery,
+            initialSearchTrigger = locationJumpTrigger,
+            onSelectAiProvider = { viewModel.setAiProvider(it) },
+            onSelectAiModel = { viewModel.setAiModel(it) },
+            onSelectAiImageModel = { viewModel.setAiImageModel(it) },
+            onGenerateAiImage = { prompt, maxDim, onOk, onErr ->
+                viewModel.generateEntityImage(prompt, maxDim, onOk, onErr)
+            },
+            onSendAiChat = { viewModel.sendAiChatMessage(story, it, "locations") },
+            onSaveItem = { viewModel.saveWorldItem(story, it) },
+            onReorder = { viewModel.reorderWorldItems(story, it) },
+            onDeleteItems = { viewModel.deleteWorldItems(story, it) },
+            onImportAi = { raw, start, regex, done ->
+                viewModel.importWorldItemsWithAi(story, raw, "location", start, regex, done)
+            },
+            onResetAiState = { viewModel.resetAiState() },
+            onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
+        )
+        StoryTabId.POWERS -> WorldListTab(
+            story = story,
+            category = "power",
+            items = worldItems,
+            currentUserId = viewModel.currentUserId,
+            isGmMode = isGmMode,
+            aiState = aiState,
+            userSettings = userSettings,
+            aiChatState = aiChatState,
+            onSelectAiProvider = { viewModel.setAiProvider(it) },
+            onSelectAiModel = { viewModel.setAiModel(it) },
+            onSelectAiImageModel = { viewModel.setAiImageModel(it) },
+            onGenerateAiImage = { prompt, maxDim, onOk, onErr ->
+                viewModel.generateEntityImage(prompt, maxDim, onOk, onErr)
+            },
+            onSendAiChat = { viewModel.sendAiChatMessage(story, it, "powers & spells") },
+            onSaveItem = { viewModel.saveWorldItem(story, it) },
+            onReorder = { viewModel.reorderWorldItems(story, it) },
+            onDeleteItems = { viewModel.deleteWorldItems(story, it) },
+            onImportAi = { raw, start, regex, done ->
+                viewModel.importWorldItemsWithAi(story, raw, "power", start, regex, done)
+            },
+            onResetAiState = { viewModel.resetAiState() },
+            onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
         )
         StoryTabId.MAP -> GridMapTab(
             story = story,
@@ -567,9 +842,9 @@ private fun StoryTabContent(
             onAddQuickAsset = { viewModel.addQuickMapAsset(it) },
             onAddQuickBlock = { viewModel.addQuickMapBlock(it) },
         )
-        StoryTabId.LOCATIONS -> WorldListTab(
+        StoryTabId.ITEMS -> WorldListTab(
             story = story,
-            category = "location",
+            category = "item",
             items = worldItems,
             currentUserId = viewModel.currentUserId,
             isGmMode = isGmMode,
@@ -582,38 +857,15 @@ private fun StoryTabContent(
             onGenerateAiImage = { prompt, maxDim, onOk, onErr ->
                 viewModel.generateEntityImage(prompt, maxDim, onOk, onErr)
             },
-            onSendAiChat = { viewModel.sendAiChatMessage(story, it, "locations") },
+            onSendAiChat = { viewModel.sendAiChatMessage(story, it, "items, tools, weapons & equipment") },
             onSaveItem = { viewModel.saveWorldItem(story, it) },
             onReorder = { viewModel.reorderWorldItems(story, it) },
             onDeleteItems = { viewModel.deleteWorldItems(story, it) },
             onImportAi = { raw, start, regex, done ->
-                viewModel.importWorldItemsWithAi(story, raw, "location", start, regex, done)
+                viewModel.importWorldItemsWithAi(story, raw, "item", start, regex, done)
             },
-            onResetAiState = { viewModel.resetAiState() }
-        )
-        StoryTabId.POWERS -> WorldListTab(
-            story = story,
-            category = "power",
-            items = worldItems,
-            currentUserId = viewModel.currentUserId,
-            isGmMode = isGmMode,
-            aiState = aiState,
-            userSettings = userSettings,
-            aiChatState = aiChatState,
-            onSelectAiProvider = { viewModel.setAiProvider(it) },
-            onSelectAiModel = { viewModel.setAiModel(it) },
-            onSelectAiImageModel = { viewModel.setAiImageModel(it) },
-            onGenerateAiImage = { prompt, maxDim, onOk, onErr ->
-                viewModel.generateEntityImage(prompt, maxDim, onOk, onErr)
-            },
-            onSendAiChat = { viewModel.sendAiChatMessage(story, it, "powers & spells") },
-            onSaveItem = { viewModel.saveWorldItem(story, it) },
-            onReorder = { viewModel.reorderWorldItems(story, it) },
-            onDeleteItems = { viewModel.deleteWorldItems(story, it) },
-            onImportAi = { raw, start, regex, done ->
-                viewModel.importWorldItemsWithAi(story, raw, "power", start, regex, done)
-            },
-            onResetAiState = { viewModel.resetAiState() }
+            onResetAiState = { viewModel.resetAiState() },
+            onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
         )
         StoryTabId.NOTES -> WorldListTab(
             story = story,
@@ -637,16 +889,39 @@ private fun StoryTabContent(
             onImportAi = { raw, start, regex, done ->
                 viewModel.importWorldItemsWithAi(story, raw, "note", start, regex, done)
             },
-            onResetAiState = { viewModel.resetAiState() }
+            onResetAiState = { viewModel.resetAiState() },
+            onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
         )
         StoryTabId.CHAT -> ChatTab(
             story = story,
             strings = strings,
             messages = messages,
+            characters = characters,
+            worldItems = worldItems,
             currentUserId = viewModel.currentUserId,
+            userDisplayName = userDisplayName,
+            isGmMode = isGmMode,
             activeAiModelLabel = userSettings.aiModel,
+            focusMessageId = focusChatMessageId,
+            onConsumeFocusMessage = onConsumeFocusMessage,
             onOpenAiChat = onOpenAiChat,
-            onSendMessage = { viewModel.sendChatMessage(story, it) }
+            onSendMessage = { body, speaker, replyTo, ref, pinned ->
+                viewModel.sendChatMessage(
+                    story = story,
+                    body = body,
+                    speakerName = speaker,
+                    replyTo = replyTo,
+                    entityRef = ref,
+                    pinned = pinned,
+                )
+            },
+            onTogglePinMessage = { msg -> viewModel.togglePinMessage(story, msg) },
+            onToggleReaction = { msg, emoji -> viewModel.toggleMessageReaction(story, msg, emoji) },
+            onDeleteMessage = { msgId -> viewModel.deleteChatMessage(story, msgId) },
+            onPinCharacter = { ch, uid, note -> viewModel.pinCharacterToChat(story, ch, uid, note) },
+            onSlashRoll = { cmd, roller -> viewModel.trySendSlashRoll(story, cmd, roller) },
+            onJumpToEntityTab = onJumpToEntityTab,
+            onNotify = { msg -> viewModel.showToast(msg) },
         )
         StoryTabId.LOGS -> LogsTab(logs = logs)
     }

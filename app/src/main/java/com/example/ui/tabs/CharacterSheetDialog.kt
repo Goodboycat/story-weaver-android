@@ -4,11 +4,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -22,18 +20,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -73,6 +72,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.ai.AiChatUiState
 import com.example.ai.AiPromptTemplates
 import com.example.ai.AiProvider
+import com.example.ai.CharacterParserHelpers
 import com.example.data.Character
 import com.example.data.EquipmentSlot
 import com.example.data.EquipmentSlotItem
@@ -80,10 +80,13 @@ import com.example.data.InventoryEntry
 import com.example.data.JsonCodecs
 import com.example.data.MissionEntry
 import com.example.data.PowerEntry
+import com.example.data.Story
 import com.example.data.UserSettings
+import com.example.data.WorldItem
 import com.example.ui.components.AiImageGenerateDialog
 import com.example.ui.components.AiImportDialog
 import com.example.ui.components.AllEmojiPickerDialog
+import com.example.ui.components.FullImageViewerDialog
 import com.example.ui.components.IdeaGuideDialog
 import com.example.ui.components.ImagePickerUtil
 import com.example.viewmodel.AiUiState
@@ -114,6 +117,13 @@ fun CharacterSheetDialog(
     onSendAiChat: (String) -> Unit,
     onParseEquipmentAi: (rawText: String, onParsed: (Map<String, EquipmentSlotItem>) -> Unit) -> Unit,
     onResetAiState: () -> Unit,
+    story: Story? = null,
+    allCharacters: List<Character> = emptyList(),
+    worldItems: List<WorldItem> = emptyList(),
+    isPinned: Boolean = false,
+    onShareToChat: ((Character) -> Unit)? = null,
+    onPinToggle: (() -> Unit)? = null,
+    onJumpToLocation: ((String) -> Unit)? = null,
     onAutoSave: ((Character) -> Unit)? = null,
     onSave: (Character) -> Unit,
     onDismiss: () -> Unit,
@@ -123,6 +133,7 @@ fun CharacterSheetDialog(
 
     var name by remember(initialCharacter) { mutableStateOf(initialCharacter.name) }
     var roleTitle by remember(initialCharacter) { mutableStateOf(initialCharacter.roleTitle) }
+    var locationName by remember(initialCharacter) { mutableStateOf(initialCharacter.locationName) }
     var avatarEmoji by remember(initialCharacter) { mutableStateOf(initialCharacter.avatarEmoji) }
     var avatarUrl by remember(initialCharacter) { mutableStateOf(initialCharacter.avatarUrl) }
     var levelText by remember(initialCharacter) { mutableStateOf(initialCharacter.level.toString()) }
@@ -145,6 +156,8 @@ fun CharacterSheetDialog(
     var showEquipmentGuide by remember { mutableStateOf(false) }
     var emojiTarget by remember { mutableStateOf<EmojiTarget?>(null) }
     var showCharImageGen by remember { mutableStateOf(false) }
+    var fullScreenImage by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var parseFeedback by remember { mutableStateOf<String?>(null) }
 
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -160,6 +173,7 @@ fun CharacterSheetDialog(
     fun buildUpdatedCharacter(): Character = initialCharacter.copy(
         name = name.trim().ifBlank { "Unnamed" },
         roleTitle = roleTitle.trim(),
+        locationName = locationName.trim().take(120),
         avatarEmoji = avatarEmoji,
         avatarUrl = avatarUrl,
         level = levelText.toLongOrNull() ?: initialCharacter.level,
@@ -173,6 +187,26 @@ fun CharacterSheetDialog(
         equipmentJson = JsonCodecs.encodeEquipment(equipment),
         statsJson = JsonCodecs.encodeStats(stats),
     )
+
+    fun reparseNotesIntoFields() {
+        val stubStory = story ?: Story(
+            id = initialCharacter.storyId,
+            gmUserId = initialCharacter.gmUserId,
+            memberUids = initialCharacter.memberUids,
+        )
+        val merged = CharacterParserHelpers.applyParsedNotesToCharacter(buildUpdatedCharacter(), stubStory)
+        roleTitle = merged.roleTitle
+        locationName = merged.locationName
+        levelText = merged.level.toString()
+        hpCurrentText = merged.hpCurrent.toString()
+        hpMaxText = merged.hpMax.toString()
+        acText = merged.ac.toString()
+        stats = JsonCodecs.decodeStats(merged.statsJson)
+        equipment = JsonCodecs.decodeEquipment(merged.equipmentJson)
+        powers = JsonCodecs.decodePowers(merged.powersJson)
+        inventory = JsonCodecs.decodeInventory(merged.inventoryJson)
+        parseFeedback = "Parsed stats, gear slots, inventory & powers from Notes."
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -197,6 +231,24 @@ fun CharacterSheetDialog(
                         )
                     },
                     actions = {
+                        if (onShareToChat != null && initialCharacter.id.isNotBlank()) {
+                            IconButton(onClick = { onShareToChat(buildUpdatedCharacter()) }) {
+                                Icon(
+                                    Icons.Default.Campaign,
+                                    contentDescription = "Share to Chat",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        if (onPinToggle != null && initialCharacter.id.isNotBlank()) {
+                            IconButton(onClick = onPinToggle) {
+                                Icon(
+                                    Icons.Default.PushPin,
+                                    contentDescription = if (isPinned) "Unpin" else "Pin Character",
+                                    tint = if (isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                         if (canEdit) {
                             Button(
                                 onClick = { onSave(buildUpdatedCharacter()) },
@@ -265,10 +317,14 @@ fun CharacterSheetDialog(
                                     modifier = Modifier
                                         .size(72.dp)
                                         .clip(CircleShape)
-                                        .clickable(enabled = canEdit) {
-                                            avatarPicker.launch(
-                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                            )
+                                        .clickable {
+                                            if (!avatarUrl.isNullOrBlank()) {
+                                                fullScreenImage = name.ifBlank { "Character" } to avatarUrl!!
+                                            } else if (canEdit) {
+                                                avatarPicker.launch(
+                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                )
+                                            }
                                         }
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
@@ -285,11 +341,11 @@ fun CharacterSheetDialog(
                                     }
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    if (canEdit) {
-                                        FlowRow(
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        if (canEdit) {
                                             OutlinedButton(
                                                 onClick = {
                                                     avatarPicker.launch(
@@ -310,10 +366,26 @@ fun CharacterSheetDialog(
                                                 Spacer(Modifier.width(6.dp))
                                                 Text("AI Image")
                                             }
+                                            OutlinedButton(
+                                                onClick = { emojiTarget = EmojiTarget.CharacterAvatar },
+                                                modifier = Modifier.testTag("open_all_emojis_char_button")
+                                            ) {
+                                                Icon(Icons.Default.EmojiEmotions, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("All Emojis ($avatarEmoji)")
+                                            }
                                         }
                                         if (avatarUrl != null) {
-                                            TextButton(onClick = { avatarUrl = null }) { Text("Use Emoji Instead") }
+                                            OutlinedButton(
+                                                onClick = { fullScreenImage = name.ifBlank { "Character" } to avatarUrl!! },
+                                                modifier = Modifier.testTag("view_char_avatar_full_button")
+                                            ) {
+                                                Text("View / Save")
+                                            }
                                         }
+                                    }
+                                    if (canEdit && avatarUrl != null) {
+                                        TextButton(onClick = { avatarUrl = null }) { Text("Use Emoji Instead") }
                                     }
                                     Text(
                                         "Sheet ID: ${initialCharacter.id.ifBlank { "New" }}",
@@ -323,31 +395,28 @@ fun CharacterSheetDialog(
                                 }
                             }
 
-                            if (canEdit) {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    listOf("🛡️", "⚔️", "🧙", "🏹", "🗡️", "🔮", "👹", "🐉", "💀", "👑").forEach { em ->
-                                        FilterChip(
-                                            selected = avatarEmoji == em && avatarUrl == null,
-                                            onClick = {
-                                                avatarEmoji = em
-                                                avatarUrl = null
-                                            },
-                                            label = { Text(em) }
-                                        )
+                            if (canEdit && allCharacters.isNotEmpty()) {
+                                RegisteredUnitDropdownButton(
+                                    allCharacters = allCharacters,
+                                    currentCharacterId = initialCharacter.id,
+                                    onSelectUnit = { unit ->
+                                        name = unit.name
+                                        roleTitle = unit.roleTitle
+                                        locationName = unit.locationName
+                                        avatarEmoji = unit.avatarEmoji
+                                        avatarUrl = unit.avatarUrl
+                                        levelText = unit.level.toString()
+                                        hpCurrentText = unit.hpCurrent.toString()
+                                        hpMaxText = unit.hpMax.toString()
+                                        acText = unit.ac.toString()
+                                        notes = unit.notes
+                                        inventory = JsonCodecs.decodeInventory(unit.inventoryJson)
+                                        missions = JsonCodecs.decodeMissions(unit.missionsJson)
+                                        powers = JsonCodecs.decodePowers(unit.powersJson)
+                                        equipment = JsonCodecs.decodeEquipment(unit.equipmentJson)
+                                        stats = JsonCodecs.decodeStats(unit.statsJson)
                                     }
-                                    FilterChip(
-                                        selected = false,
-                                        onClick = { emojiTarget = EmojiTarget.CharacterAvatar },
-                                        leadingIcon = {
-                                            Icon(Icons.Default.EmojiEmotions, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        },
-                                        label = { Text("All Emojis...") },
-                                        modifier = Modifier.testTag("open_all_emojis_char_button")
-                                    )
-                                }
+                                )
                             }
 
                             OutlinedTextField(
@@ -366,6 +435,40 @@ fun CharacterSheetDialog(
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
+
+                            OutlinedTextField(
+                                value = locationName,
+                                onValueChange = { if (canEdit) locationName = it },
+                                readOnly = !canEdit,
+                                label = { Text("Location / Region") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().testTag("char_location_input")
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                if (canEdit) {
+                                    RegisteredLocationDropdownButton(
+                                        worldItems = worldItems,
+                                        onSelectLocation = { pickedLoc -> locationName = pickedLoc }
+                                    )
+                                }
+                                if (onJumpToLocation != null && locationName.isNotBlank()) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            if (canEdit) onSave(buildUpdatedCharacter()) else onDismiss()
+                                            onJumpToLocation(locationName.trim())
+                                        },
+                                        modifier = Modifier.testTag("char_jump_to_location_button")
+                                    ) {
+                                        Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Jump to Location")
+                                    }
+                                }
+                            }
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -407,6 +510,23 @@ fun CharacterSheetDialog(
 
                         1 -> {
                             // Notes Sub-Tab
+                            if (canEdit && notes.isNotBlank()) {
+                                OutlinedButton(
+                                    onClick = { reparseNotesIntoFields() },
+                                    modifier = Modifier.fillMaxWidth().testTag("reparse_notes_button")
+                                ) {
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Re-parse Notes -> Stats, Gear & Powers")
+                                }
+                            }
+                            if (parseFeedback != null) {
+                                Text(
+                                    text = parseFeedback!!,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             OutlinedTextField(
                                 value = notes,
                                 onValueChange = { if (canEdit) notes = it },
@@ -423,6 +543,19 @@ fun CharacterSheetDialog(
                             var newItemQty by remember { mutableStateOf("1") }
                             var newItemEmoji by remember { mutableStateOf("🎒") }
                             if (canEdit) {
+                                RegisteredItemDropdownButton(
+                                    worldItems = worldItems,
+                                    buttonLabel = "Add from Items Tab",
+                                    onSelectItem = { picked ->
+                                        inventory = inventory + InventoryEntry(
+                                            id = UUID.randomUUID().toString().take(8),
+                                            name = picked.title,
+                                            quantity = 1,
+                                            notes = picked.description.ifBlank { picked.subtitle },
+                                            emoji = picked.iconEmoji.ifBlank { "🎒" },
+                                        )
+                                    }
+                                )
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -573,8 +706,15 @@ fun CharacterSheetDialog(
                             var pName by remember { mutableStateOf("") }
                             var pCost by remember { mutableStateOf("") }
                             var pDesc by remember { mutableStateOf("") }
+                            var pTagsText by remember { mutableStateOf("") }
                             var pEmoji by remember { mutableStateOf("✨") }
                             if (canEdit) {
+                                RegisteredPowerDropdownButton(
+                                    worldItems = worldItems,
+                                    onSelectPower = { pickedPower ->
+                                        powers = powers + pickedPower
+                                    }
+                                )
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -607,14 +747,16 @@ fun CharacterSheetDialog(
                                     Button(
                                         onClick = {
                                             if (pName.isNotBlank()) {
+                                                val parsedTags = pTagsText.split(",").map { it.trim().removePrefix("#") }.filter { it.isNotBlank() }
                                                 powers = powers + PowerEntry(
                                                     id = UUID.randomUUID().toString().take(8),
                                                     name = pName.trim(),
                                                     cost = pCost.trim(),
                                                     description = pDesc.trim(),
-                                                    emoji = pEmoji
+                                                    emoji = pEmoji,
+                                                    tags = parsedTags,
                                                 )
-                                                pName = ""; pCost = ""; pDesc = ""; pEmoji = "✨"
+                                                pName = ""; pCost = ""; pDesc = ""; pTagsText = ""; pEmoji = "✨"
                                             }
                                         },
                                         modifier = Modifier.align(Alignment.CenterVertically)
@@ -625,6 +767,13 @@ fun CharacterSheetDialog(
                                     onValueChange = { pDesc = it },
                                     label = { Text("Effect Description") },
                                     minLines = 2,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                OutlinedTextField(
+                                    value = pTagsText,
+                                    onValueChange = { pTagsText = it },
+                                    label = { Text("Tags (comma separated)") },
+                                    singleLine = true,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
@@ -649,10 +798,29 @@ fun CharacterSheetDialog(
                                             },
                                             label = { Text(p.emoji) }
                                         )
-                                        Column(modifier = Modifier.weight(1f)) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
                                             Text("${p.name}" + if (p.cost.isNotBlank()) " (${p.cost})" else "", style = MaterialTheme.typography.titleMedium)
                                             if (p.description.isNotBlank()) {
                                                 Text(p.description, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                            if (p.tags.isNotEmpty()) {
+                                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    p.tags.forEach { tag ->
+                                                        Surface(
+                                                            color = MaterialTheme.colorScheme.surface,
+                                                            shape = MaterialTheme.shapes.small
+                                                        ) {
+                                                            Text(
+                                                                "#$tag",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                         if (canEdit) {
@@ -673,9 +841,17 @@ fun CharacterSheetDialog(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text("12-Slot Equipment Silhouette", style = MaterialTheme.typography.titleMedium)
-                                Row {
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     IconButton(onClick = { showEquipmentGuide = true }) {
                                         Icon(Icons.Default.Lightbulb, contentDescription = "Equipment Guide")
+                                    }
+                                    if (canEdit && notes.isNotBlank()) {
+                                        OutlinedButton(
+                                            onClick = { reparseNotesIntoFields() },
+                                            modifier = Modifier.testTag("gear_parse_notes_button")
+                                        ) {
+                                            Text("From Notes")
+                                        }
                                     }
                                     if (canEdit) {
                                         OutlinedButton(
@@ -691,6 +867,13 @@ fun CharacterSheetDialog(
                                         }
                                     }
                                 }
+                            }
+                            if (parseFeedback != null) {
+                                Text(
+                                    text = parseFeedback!!,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
 
                             EquipmentSilhouetteGrid(
@@ -759,223 +942,33 @@ fun CharacterSheetDialog(
 
     if (selectedSlot != null) {
         val slot = selectedSlot!!
-        val current = equipment[slot.key] ?: EquipmentSlotItem()
-        var itemName by remember(slot) { mutableStateOf(current.name) }
-        var itemBonus by remember(slot) { mutableStateOf(current.bonus) }
-        var itemNotes by remember(slot) { mutableStateOf(current.notes) }
-        var itemEmoji by remember(slot) { mutableStateOf(current.emoji.ifBlank { slot.emoji }) }
-        var itemImageUrl by remember(slot) { mutableStateOf(current.imageUrl) }
-        var showSlotImageGen by remember(slot) { mutableStateOf(false) }
-
-        val slotImagePicker = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.PickVisualMedia()
-        ) { uri ->
-            if (uri != null) {
-                scope.launch {
-                    val b64 = ImagePickerUtil.uriToResizedBase64DataUrl(context, uri, maxDimension = 180, quality = 72)
-                    if (b64 != null) {
-                        itemImageUrl = b64
-                        val nextItem = EquipmentSlotItem(
-                            name = itemName.trim().ifBlank { slot.label },
-                            bonus = itemBonus.trim(),
-                            notes = itemNotes.trim(),
-                            emoji = itemEmoji,
-                            imageUrl = b64,
-                        )
-                        equipment = equipment.toMutableMap().apply { put(slot.key, nextItem) }
-                        if (initialCharacter.id.isNotBlank()) {
-                            onAutoSave?.invoke(buildUpdatedCharacter())
-                        }
-                    }
-                }
-            }
-        }
-
-        val slotBitmap = remember(itemImageUrl) { ImagePickerUtil.decodeDataUrlBitmap(itemImageUrl) }
-
-        AlertDialog(
-            onDismissRequest = { selectedSlot = null },
-            title = { Text("${itemEmoji.ifBlank { slot.emoji }} ${slot.label}") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp))
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                if (slotBitmap != null) {
-                                    Image(
-                                        bitmap = slotBitmap.asImageBitmap(),
-                                        contentDescription = itemName.ifBlank { slot.label },
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    Text(itemEmoji.ifBlank { slot.emoji }, style = MaterialTheme.typography.headlineMedium)
-                                }
-                            }
-                        }
-
-                        if (canEdit) {
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                OutlinedButton(
-                                    onClick = { showSlotImageGen = true },
-                                    modifier = Modifier.testTag("generate_equipment_image_button")
-                                ) {
-                                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("AI Image")
-                                }
-                                OutlinedButton(
-                                    onClick = {
-                                        slotImagePicker.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
-                                    },
-                                    modifier = Modifier.testTag("upload_equipment_image_button")
-                                ) {
-                                    Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Upload")
-                                }
-                                OutlinedButton(
-                                    onClick = {
-                                        emojiTarget = EmojiTarget.EquipmentSlotBadge { picked ->
-                                            itemEmoji = picked
-                                        }
-                                    },
-                                    modifier = Modifier.testTag("open_all_emojis_equipment_button")
-                                ) {
-                                    Icon(Icons.Default.EmojiEmotions, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("All Emojis")
-                                }
-                            }
-                        }
-                    }
-
-                    if (canEdit && itemImageUrl != null) {
-                        TextButton(onClick = { itemImageUrl = null }) {
-                            Text("Remove Slot Image")
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = itemName,
-                        onValueChange = { if (canEdit) itemName = it },
-                        readOnly = !canEdit,
-                        label = { Text("Equipped Item") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("equipment_item_name_input")
-                    )
-                    OutlinedTextField(
-                        value = itemBonus,
-                        onValueChange = { if (canEdit) itemBonus = it },
-                        readOnly = !canEdit,
-                        label = { Text("Bonus (e.g. +1 AC)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = itemNotes,
-                        onValueChange = { if (canEdit) itemNotes = it },
-                        readOnly = !canEdit,
-                        label = { Text("Properties / Lore") },
-                        minLines = 2,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+        EquipmentSlotEditorDialog(
+            slot = slot,
+            currentItem = equipment[slot.key] ?: EquipmentSlotItem(),
+            canEdit = canEdit,
+            characterId = initialCharacter.id,
+            userSettings = userSettings,
+            worldItems = worldItems,
+            onSelectAiImageModel = onSelectAiImageModel,
+            onGenerateAiImage = onGenerateAiImage,
+            onRequestPickEmoji = { onPicked ->
+                emojiTarget = EmojiTarget.EquipmentSlotBadge(onPicked)
             },
-            confirmButton = {
-                if (canEdit) {
-                    Button(
-                        onClick = {
-                            equipment = equipment.toMutableMap().apply {
-                                if (
-                                    itemName.isBlank() &&
-                                    itemBonus.isBlank() &&
-                                    itemNotes.isBlank() &&
-                                    itemImageUrl.isNullOrBlank() &&
-                                    itemEmoji == slot.emoji
-                                ) {
-                                    remove(slot.key)
-                                } else {
-                                    put(
-                                        slot.key,
-                                        EquipmentSlotItem(
-                                            name = itemName.trim(),
-                                            bonus = itemBonus.trim(),
-                                            notes = itemNotes.trim(),
-                                            emoji = itemEmoji,
-                                            imageUrl = itemImageUrl,
-                                        )
-                                    )
-                                }
-                            }
-                            selectedSlot = null
-                        },
-                        modifier = Modifier.testTag("apply_equipment_slot_button")
-                    ) { Text("Apply") }
-                } else {
-                    TextButton(onClick = { selectedSlot = null }) { Text("Close") }
-                }
+            onOpenFullImage = { title, url ->
+                fullScreenImage = title to url
             },
-            dismissButton = {
-                if (canEdit) {
-                    TextButton(onClick = { selectedSlot = null }) { Text("Cancel") }
+            onAutoSaveSlot = { nextItem ->
+                equipment = equipment.toMutableMap().apply { put(slot.key, nextItem) }
+                onAutoSave?.invoke(buildUpdatedCharacter())
+            },
+            onApplySlot = { nextItem ->
+                equipment = equipment.toMutableMap().apply {
+                    if (nextItem == null) remove(slot.key) else put(slot.key, nextItem)
                 }
-            }
+                selectedSlot = null
+            },
+            onDismiss = { selectedSlot = null }
         )
-
-        if (showSlotImageGen) {
-            val defaultEquipPrompt = buildString {
-                append("Detailed dark fantasy RPG equipment icon illustration for ${slot.label}: ")
-                append(itemName.trim().ifBlank { slot.label })
-                if (itemBonus.isNotBlank()) append(" (${itemBonus.trim()})")
-                if (itemNotes.isNotBlank()) append(". ${itemNotes.trim().take(160)}")
-                append(". Centered item artwork, no text, rich fantasy lighting.")
-            }
-            AiImageGenerateDialog(
-                title = "Generate ${slot.label} Artwork",
-                defaultPrompt = defaultEquipPrompt,
-                userSettings = userSettings,
-                onSelectImageModel = onSelectAiImageModel,
-                onGenerate = { prompt, onOk, onErr ->
-                    onGenerateAiImage(prompt, 180, onOk, onErr)
-                },
-                onImageGenerated = { dataUrl ->
-                    itemImageUrl = dataUrl
-                    val effectiveName = itemName.trim().ifBlank { slot.label }
-                    if (itemName.isBlank()) itemName = effectiveName
-                    equipment = equipment.toMutableMap().apply {
-                        put(
-                            slot.key,
-                            EquipmentSlotItem(
-                                name = effectiveName,
-                                bonus = itemBonus.trim(),
-                                notes = itemNotes.trim(),
-                                emoji = itemEmoji,
-                                imageUrl = dataUrl,
-                            )
-                        )
-                    }
-                    if (initialCharacter.id.isNotBlank()) {
-                        onAutoSave?.invoke(buildUpdatedCharacter())
-                    }
-                },
-                onDismiss = { showSlotImageGen = false }
-            )
-        }
     }
 
     if (showCharImageGen) {
@@ -1057,88 +1050,14 @@ fun CharacterSheetDialog(
     if (showEquipmentGuide) {
         IdeaGuideDialog(guideKey = "equipment", onDismiss = { showEquipmentGuide = false })
     }
-}
 
-@Composable
-private fun EquipmentSilhouetteGrid(
-    equipment: Map<String, EquipmentSlotItem>,
-    onSlotClick: (EquipmentSlot) -> Unit,
-) {
-    val rows = listOf(
-        listOf(EquipmentSlot.HEAD, EquipmentSlot.EYES),
-        listOf(EquipmentSlot.NECK, EquipmentSlot.SHOULDERS, EquipmentSlot.BACK),
-        listOf(EquipmentSlot.WRISTS, EquipmentSlot.CHEST, EquipmentSlot.HANDS),
-        listOf(EquipmentSlot.WAIST, EquipmentSlot.WEAPON_MAIN),
-        listOf(EquipmentSlot.LEGS, EquipmentSlot.FEET),
-    )
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            rows.forEach { rowSlots ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    rowSlots.forEach { slot ->
-                        val equipped = equipment[slot.key]
-                        val hasItem = equipped != null && (equipped.name.isNotBlank() || !equipped.imageUrl.isNullOrBlank())
-                        val slotBmp = remember(equipped?.imageUrl) {
-                            ImagePickerUtil.decodeDataUrlBitmap(equipped?.imageUrl)
-                        }
-                        val displayEmoji = equipped?.emoji?.takeIf { it.isNotBlank() } ?: slot.emoji
-
-                        Surface(
-                            color = if (hasItem) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                            shape = MaterialTheme.shapes.small,
-                            modifier = Modifier
-                                .weight(1f)
-                                .border(
-                                    width = 1.dp,
-                                    color = if (hasItem) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                                    shape = MaterialTheme.shapes.small
-                                )
-                                .clickable { onSlotClick(slot) }
-                                .testTag("equipment_slot_${slot.key}")
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                if (slotBmp != null) {
-                                    Image(
-                                        bitmap = slotBmp.asImageBitmap(),
-                                        contentDescription = equipped?.name ?: slot.label,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                    )
-                                } else {
-                                    Text(displayEmoji, style = MaterialTheme.typography.titleMedium)
-                                }
-                                Text(
-                                    text = slot.label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = equipped?.name?.ifBlank { slot.label } ?: "Empty",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if (fullScreenImage != null) {
+        val (imgTitle, imgUrl) = fullScreenImage!!
+        FullImageViewerDialog(
+            title = imgTitle,
+            imageUrl = imgUrl,
+            fileNamePrefix = "storyweaver_character",
+            onDismiss = { fullScreenImage = null }
+        )
     }
 }

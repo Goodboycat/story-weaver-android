@@ -8,6 +8,22 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+fun sanitizeMapEmoji(raw: String?): String? {
+    val trimmed = raw?.trim().orEmpty()
+    if (trimmed.isEmpty()) return null
+    val lower = trimmed.lowercase()
+    if (lower == "null" || lower == "none" || lower == "undefined" || lower == "nil" || lower == "n/a" || lower == "empty" || lower == "blank") {
+        return null
+    }
+    // Reject plain ASCII words/identifiers (e.g., "tree", "wall", "water") while keeping Unicode emojis/symbols
+    val hasAsciiWordChar = trimmed.any { it.isLetter() && it.code < 128 }
+    val hasNonLatinSymbol = trimmed.any { it.code > 0x024F }
+    if (hasAsciiWordChar && !hasNonLatinSymbol) {
+        return null
+    }
+    return trimmed
+}
+
 data class MapColorSwatch(
     val hex: String,
     val name: String,
@@ -323,7 +339,7 @@ object MapPaintEngine {
                 is MapPaintOp.Rect -> {
                     val cell = GridCell(
                         colorHex = MapColorPalette.normalizeColorHex(op.colorHex),
-                        emoji = op.emoji?.takeIf { it.isNotBlank() },
+                        emoji = sanitizeMapEmoji(op.emoji),
                     )
                     if (cell.colorHex != null || cell.emoji != null) {
                         val minX = min(op.x1, op.x2).coerceIn(0, targetWidth - 1)
@@ -344,7 +360,7 @@ object MapPaintEngine {
                 is MapPaintOp.RectBorder -> {
                     val cell = GridCell(
                         colorHex = MapColorPalette.normalizeColorHex(op.colorHex),
-                        emoji = op.emoji?.takeIf { it.isNotBlank() },
+                        emoji = sanitizeMapEmoji(op.emoji),
                     )
                     if (cell.colorHex != null || cell.emoji != null) {
                         val minX = min(op.x1, op.x2).coerceIn(0, targetWidth - 1)
@@ -368,7 +384,7 @@ object MapPaintEngine {
                 is MapPaintOp.Line -> {
                     val cell = GridCell(
                         colorHex = MapColorPalette.normalizeColorHex(op.colorHex),
-                        emoji = op.emoji?.takeIf { it.isNotBlank() },
+                        emoji = sanitizeMapEmoji(op.emoji),
                     )
                     if (cell.colorHex != null || cell.emoji != null) {
                         bresenhamLine(op.x1, op.y1, op.x2, op.y2).forEach { (lx, ly) ->
@@ -381,7 +397,7 @@ object MapPaintEngine {
                 is MapPaintOp.Paint -> {
                     val cell = GridCell(
                         colorHex = MapColorPalette.normalizeColorHex(op.colorHex),
-                        emoji = op.emoji?.takeIf { it.isNotBlank() },
+                        emoji = sanitizeMapEmoji(op.emoji),
                     )
                     if (cell.colorHex != null || cell.emoji != null) {
                         op.points.forEach { (px, py) ->
@@ -396,7 +412,7 @@ object MapPaintEngine {
                     val sy = op.y.coerceIn(0, targetHeight - 1)
                     val replacement = GridCell(
                         colorHex = MapColorPalette.normalizeColorHex(op.colorHex),
-                        emoji = op.emoji?.takeIf { it.isNotBlank() },
+                        emoji = sanitizeMapEmoji(op.emoji),
                     )
                     val startKey = cellKey(sx, sy)
                     val target = nextGrid[startKey]
@@ -444,7 +460,7 @@ object MapPaintEngine {
                 is MapPaintOp.Circle -> {
                     val cell = GridCell(
                         colorHex = MapColorPalette.normalizeColorHex(op.colorHex),
-                        emoji = op.emoji?.takeIf { it.isNotBlank() },
+                        emoji = sanitizeMapEmoji(op.emoji),
                     )
                     if (cell.colorHex != null || cell.emoji != null) {
                         val r = op.radius.coerceIn(1, max(targetWidth, targetHeight))
@@ -473,11 +489,11 @@ object MapPaintEngine {
                 is MapPaintOp.Checker -> {
                     val cellA = GridCell(
                         colorHex = MapColorPalette.normalizeColorHex(op.colorHex),
-                        emoji = op.emoji?.takeIf { it.isNotBlank() },
+                        emoji = sanitizeMapEmoji(op.emoji),
                     )
                     val cellB = GridCell(
                         colorHex = MapColorPalette.normalizeColorHex(op.colorHex2),
-                        emoji = op.emoji2?.takeIf { it.isNotBlank() },
+                        emoji = sanitizeMapEmoji(op.emoji2),
                     )
                     if (cellA.colorHex != null || cellA.emoji != null || cellB.colorHex != null || cellB.emoji != null) {
                         val minX = min(op.x1, op.x2).coerceIn(0, targetWidth - 1)
@@ -499,7 +515,7 @@ object MapPaintEngine {
                 is MapPaintOp.Scatter -> {
                     val cell = GridCell(
                         colorHex = MapColorPalette.normalizeColorHex(op.colorHex),
-                        emoji = op.emoji?.takeIf { it.isNotBlank() },
+                        emoji = sanitizeMapEmoji(op.emoji),
                     )
                     if (cell.colorHex != null || cell.emoji != null) {
                         val minX = min(op.x1, op.x2).coerceIn(0, targetWidth - 1)
@@ -538,7 +554,7 @@ object MapPaintEngine {
                 if (gx in 0 until targetWidth && gy in 0 until targetHeight) {
                     val normalized = cell.copy(
                         colorHex = MapColorPalette.normalizeColorHex(cell.colorHex),
-                        emoji = cell.emoji?.takeIf { it.isNotBlank() },
+                        emoji = sanitizeMapEmoji(cell.emoji),
                     )
                     if (normalized.colorHex != null || normalized.emoji != null) {
                         nextGrid["$gx,$gy"] = normalized
@@ -560,7 +576,7 @@ object MapPaintEngine {
             MapToken(
                 id = "tk_${UUID.randomUUID().toString().take(8)}",
                 label = spec.label.trim().ifBlank { "Marker" }.take(40),
-                emoji = spec.emoji.trim().ifBlank { if (cleanKind == "monster") "👹" else "🧙" }.take(12),
+                emoji = (sanitizeMapEmoji(spec.emoji) ?: if (cleanKind == "monster") "👹" else "🧙").take(12),
                 kind = cleanKind,
                 ownerId = ownerId,
                 x = spec.x.coerceIn(0, targetWidth - 1),
@@ -635,13 +651,22 @@ object MapPaintEngine {
 }
 
 object MapPaintJsonParser {
+    private fun JSONObject.optCleanString(key: String): String? {
+        if (!has(key) || isNull(key)) return null
+        val v = optString(key, "").trim()
+        if (v.isEmpty()) return null
+        val lower = v.lowercase()
+        if (lower == "null" || lower == "none" || lower == "undefined" || lower == "nil") return null
+        return v
+    }
+
     fun parseScript(rawJson: String): Result<MapPaintScript> = runCatching {
         val obj = JSONObject(rawJson)
         val width = if (obj.has("width") && !obj.isNull("width")) obj.optInt("width", -1).takeIf { it > 0 } else null
         val height = if (obj.has("height") && !obj.isNull("height")) obj.optInt("height", -1).takeIf { it > 0 } else null
         val clearFirst = obj.optBoolean("clearFirst", obj.optBoolean("clear", false))
         val clearTokens = obj.optBoolean("clearTokens", false)
-        val summary = obj.optString("summary", "AI painted map").trim()
+        val summary = obj.optCleanString("summary") ?: "AI painted map"
 
         val ops = mutableListOf<MapPaintOp>()
         val opsArr = obj.optJSONArray("operations")
@@ -661,9 +686,10 @@ object MapPaintJsonParser {
             while (keys.hasNext()) {
                 val k = keys.next()
                 val co = cellsObj.optJSONObject(k) ?: continue
-                val color = co.optString("colorHex").takeIf { it.isNotBlank() }
-                    ?: co.optString("color").takeIf { it.isNotBlank() }
-                val emoji = co.optString("emoji").takeIf { it.isNotBlank() }
+                val color = MapColorPalette.normalizeColorHex(
+                    co.optCleanString("colorHex") ?: co.optCleanString("color")
+                )
+                val emoji = sanitizeMapEmoji(co.optCleanString("emoji"))
                 if (color != null || emoji != null) {
                     directCells[k] = GridCell(colorHex = color, emoji = emoji)
                 }
@@ -675,12 +701,14 @@ object MapPaintJsonParser {
         if (tokensArr != null) {
             for (i in 0 until tokensArr.length()) {
                 val to = tokensArr.optJSONObject(i) ?: continue
-                val label = to.optString("label").trim()
+                val label = to.optCleanString("label") ?: ""
                 if (label.isNotBlank()) {
+                    val kind = to.optCleanString("kind") ?: "monster"
+                    val fallbackEmoji = if (kind.equals("player", ignoreCase = true)) "🧙" else "👹"
                     tokens += AiMapTokenSpec(
                         label = label,
-                        emoji = to.optString("emoji", "👹"),
-                        kind = to.optString("kind", "monster"),
+                        emoji = sanitizeMapEmoji(to.optCleanString("emoji")) ?: fallbackEmoji,
+                        kind = kind,
                         x = to.optInt("x", 0),
                         y = to.optInt("y", 0),
                     )
@@ -705,11 +733,11 @@ object MapPaintJsonParser {
     }
 
     private fun parseSingleOp(o: JSONObject): MapPaintOp? {
-        val tool = o.optString("tool").ifBlank { o.optString("type") }.trim().lowercase()
-        val colorHex = o.optString("colorHex").takeIf { it.isNotBlank() }
-            ?: o.optString("color").takeIf { it.isNotBlank() }
-            ?: o.optString("bg").takeIf { it.isNotBlank() }
-        val emoji = o.optString("emoji").takeIf { it.isNotBlank() }
+        val tool = (o.optCleanString("tool") ?: o.optCleanString("type") ?: "").lowercase()
+        val colorHex = o.optCleanString("colorHex")
+            ?: o.optCleanString("color")
+            ?: o.optCleanString("bg")
+        val emoji = sanitizeMapEmoji(o.optCleanString("emoji"))
 
         return when (tool) {
             "rect", "fill_rect", "rectangle", "box" -> MapPaintOp.Rect(
@@ -783,9 +811,8 @@ object MapPaintJsonParser {
             )
 
             "checker", "checkerboard", "tile_pattern" -> {
-                val colorHex2 = o.optString("colorHex2").takeIf { it.isNotBlank() }
-                    ?: o.optString("color2").takeIf { it.isNotBlank() }
-                val emoji2 = o.optString("emoji2").takeIf { it.isNotBlank() }
+                val colorHex2 = o.optCleanString("colorHex2") ?: o.optCleanString("color2")
+                val emoji2 = sanitizeMapEmoji(o.optCleanString("emoji2"))
                 MapPaintOp.Checker(
                     x1 = o.optInt("x1", 0),
                     y1 = o.optInt("y1", 0),

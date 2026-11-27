@@ -37,13 +37,14 @@ class AiClientUnitTest {
 
     @Test
     fun `default provider models match expected presets`() {
-        assertEquals("k-exaone-2.5:free", AiModelDefaults.DEFAULT_UNOROUTER_MODEL)
+        assertEquals("nemotron-3-ultra-550b-a55b:free", AiModelDefaults.DEFAULT_UNOROUTER_MODEL)
         assertEquals("https://api.unorouter.com/v1/chat/completions", AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT)
-        assertTrue(AiModelDefaults.presetUnorouterModels.contains("k-exaone-2.5:free"))
-        assertTrue(AiModelDefaults.presetUnorouterModels.contains("gemini-3-pro:free"))
+        assertTrue(AiModelDefaults.presetUnorouterModels.contains("nemotron-3-ultra-550b-a55b:free"))
+        assertTrue(AiModelDefaults.presetUnorouterModels.contains("gpt-6.1-sol:free"))
 
         assertEquals("https://openrouter.ai/api/v1/chat/completions", AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT)
-        assertEquals("gemini-3-pro:free", AiModelDefaults.DEFAULT_IMAGE_MODEL)
+        assertEquals("absolutereality:free", AiModelDefaults.DEFAULT_IMAGE_MODEL)
+        assertTrue(AiModelDefaults.presetImageModels.contains("absolutereality:free"))
         assertEquals(AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT, AiModelDefaults.DEFAULT_IMAGE_ENDPOINT)
         assertTrue(AiModelDefaults.presetWebsiteEndpoints.any { it.second == AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT })
         assertTrue(AiModelDefaults.presetWebsiteEndpoints.any { it.second == AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT })
@@ -218,5 +219,6 @@ class AiClientUnitTest {
         assertTrue(sys.contains("scatter"))
         assertTrue(sys.contains("checker"))
         assertTrue(sys.contains("#RRGGBB"))
+        assertTrue(sys.contains("NEVER output the string \"null\""))
     }
 }

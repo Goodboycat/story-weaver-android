@@ -66,6 +66,7 @@ data class Character(
     val avatarEmoji: String = "🛡️",
     val avatarUrl: String? = null,
     val roleTitle: String = "",
+    val locationName: String = "",
     val level: Long = 1L,
     val hpCurrent: Long = 10L,
     val hpMax: Long = 10L,
@@ -88,7 +89,7 @@ data class WorldItem(
     val gmUserId: String = "",
     val ownerId: String = "",
     val memberUids: List<String> = emptyList(),
-    val category: String = "location", // "location" | "power" | "note"
+    val category: String = "location", // "location" | "power" | "note" | "item"
     val title: String = "",
     val subtitle: String = "",
     val description: String = "",
@@ -127,8 +128,35 @@ data class ChatMessage(
     val senderName: String = "",
     val senderRole: String = "Player",
     val body: String = "",
-    val messageType: String = "chat", // "chat" | "roll" | "system"
+    val messageType: String = "chat", // "chat" | "roll" | "system" | "pin" | "ref"
+    val replyToMessageId: String = "",
+    val replyToSenderName: String = "",
+    val replyToSnippet: String = "",
+    val refType: String = "", // "power" | "location" | "item" | "note" | "player" | "npc" | "monster"
+    val refId: String = "",
+    val refTitle: String = "",
+    val refSubtitle: String = "",
+    val refEmoji: String = "",
+    val refDescription: String = "",
+    val refTagsJson: String = "[]",
+    val pinned: Boolean = false,
+    val pinnedBy: String = "",
+    val targetUserId: String = "",
+    val targetCharacterId: String = "",
+    val targetCharacterName: String = "",
+    val reactionsJson: String = "{}",
     @ServerTimestamp val createdAt: Timestamp? = null,
+)
+
+data class ChatEntityRef(
+    val refType: String, // "power" | "location" | "item" | "note" | "player" | "npc" | "monster"
+    val refId: String = "",
+    val title: String,
+    val subtitle: String = "",
+    val emoji: String = "✨",
+    val description: String = "",
+    val tags: List<String> = emptyList(),
+    val ownerId: String = "",
 )
 
 @Keep
@@ -186,6 +214,7 @@ data class PowerEntry(
     val cost: String = "",
     val description: String = "",
     val emoji: String = "✨",
+    val tags: List<String> = emptyList(),
 )
 
 enum class EquipmentSlot(val key: String, val label: String, val emoji: String) {
@@ -246,6 +275,15 @@ data class ScheduledSessionRecord(
 // --- Safe JSON Codecs ---
 
 object JsonCodecs {
+    internal fun JSONObject.optNonNullString(key: String): String? {
+        if (!has(key) || isNull(key)) return null
+        val v = optString(key, "").trim()
+        if (v.isEmpty()) return null
+        val lower = v.lowercase()
+        if (lower == "null" || lower == "undefined" || lower == "none" || lower == "nil") return null
+        return v
+    }
+
     fun decodeGrid(json: String): Map<String, GridCell> {
         if (json.isBlank() || json == "{}") return emptyMap()
         return try {
@@ -255,12 +293,18 @@ object JsonCodecs {
             while (keys.hasNext()) {
                 val key = keys.next()
                 val cellObj = obj.optJSONObject(key) ?: continue
-                result[key] = GridCell(
-                    colorHex = cellObj.optString("colorHex").takeIf { it.isNotBlank() },
-                    emoji = cellObj.optString("emoji").takeIf { it.isNotBlank() },
-                    imageBase64 = cellObj.optString("imageBase64").takeIf { it.isNotBlank() },
-                    label = cellObj.optString("label").takeIf { it.isNotBlank() },
-                )
+                val colorHex = cellObj.optNonNullString("colorHex")
+                val emoji = sanitizeMapEmoji(cellObj.optNonNullString("emoji"))
+                val imageBase64 = cellObj.optNonNullString("imageBase64")
+                val label = cellObj.optNonNullString("label")
+                if (colorHex != null || emoji != null || imageBase64 != null || label != null) {
+                    result[key] = GridCell(
+                        colorHex = colorHex,
+                        emoji = emoji,
+                        imageBase64 = imageBase64,
+                        label = label,
+                    )
+                }
             }
             result
         } catch (_: Exception) {
@@ -291,13 +335,13 @@ object JsonCodecs {
                 val o = arr.optJSONObject(idx) ?: return@mapNotNull null
                 MapToken(
                     id = o.optString("id"),
-                    label = o.optString("label", "Token"),
-                    emoji = o.optString("emoji", "🧙"),
-                    kind = o.optString("kind", "player"),
-                    ownerId = o.optString("ownerId", ""),
+                    label = o.optNonNullString("label") ?: "Token",
+                    emoji = sanitizeMapEmoji(o.optNonNullString("emoji")) ?: "🧙",
+                    kind = o.optNonNullString("kind") ?: "player",
+                    ownerId = o.optNonNullString("ownerId") ?: "",
                     x = o.optInt("x", 0),
                     y = o.optInt("y", 0),
-                    colorHex = o.optString("colorHex", "#F59E0B"),
+                    colorHex = o.optNonNullString("colorHex") ?: "#F59E0B",
                 )
             }
         } catch (_: Exception) {
@@ -424,13 +468,20 @@ object JsonCodecs {
             val arr = JSONArray(json)
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val tagsArr = o.optJSONArray("tags")
+                val tags = if (tagsArr != null) {
+                    (0 until tagsArr.length()).mapNotNull { ti ->
+                        tagsArr.optString(ti).trim().takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                    }
+                } else emptyList()
                 PowerEntry(
                     id = o.optString("id", "pow_$i"),
-                    name = o.optString("name"),
-                    cost = o.optString("cost", ""),
-                    description = o.optString("description", ""),
-                    emoji = o.optString("emoji", "✨"),
-                )
+                    name = o.optNonNullString("name") ?: "",
+                    cost = o.optNonNullString("cost") ?: "",
+                    description = o.optNonNullString("description") ?: "",
+                    emoji = o.optNonNullString("emoji") ?: "✨",
+                    tags = tags,
+                ).takeIf { it.name.isNotBlank() }
             }
         } catch (_: Exception) {
             emptyList()
@@ -446,6 +497,9 @@ object JsonCodecs {
                 put("cost", item.cost)
                 put("description", item.description)
                 put("emoji", item.emoji)
+                if (item.tags.isNotEmpty()) {
+                    put("tags", JSONArray().apply { item.tags.forEach { put(it) } })
+                }
             })
         }
         return arr.toString()
@@ -461,11 +515,11 @@ object JsonCodecs {
                 val key = keys.next()
                 val slotObj = obj.optJSONObject(key) ?: continue
                 result[key] = EquipmentSlotItem(
-                    name = slotObj.optString("name", ""),
-                    bonus = slotObj.optString("bonus", ""),
-                    notes = slotObj.optString("notes", ""),
-                    emoji = slotObj.optString("emoji", ""),
-                    imageUrl = slotObj.optString("imageUrl").takeIf { it.isNotBlank() },
+                    name = slotObj.optNonNullString("name") ?: "",
+                    bonus = slotObj.optNonNullString("bonus") ?: "",
+                    notes = slotObj.optNonNullString("notes") ?: "",
+                    emoji = slotObj.optNonNullString("emoji") ?: "",
+                    imageUrl = slotObj.optNonNullString("imageUrl"),
                 )
             }
             result
@@ -562,13 +616,13 @@ object JsonCodecs {
             val arr = JSONArray(json)
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                val color = o.optString("colorHex").takeIf { it.isNotBlank() }
-                val emoji = o.optString("emoji").takeIf { it.isNotBlank() }
-                val img = o.optString("imageBase64").takeIf { it.isNotBlank() }
+                val color = o.optNonNullString("colorHex")
+                val emoji = sanitizeMapEmoji(o.optNonNullString("emoji"))
+                val img = o.optNonNullString("imageBase64")
                 if (color == null && emoji == null && img == null) null
                 else QuickMapBlock(
                     id = o.optString("id", "qb_$i"),
-                    label = o.optString("label", ""),
+                    label = o.optNonNullString("label") ?: "",
                     colorHex = color,
                     emoji = emoji,
                     imageBase64 = img,
@@ -685,5 +739,38 @@ object JsonCodecs {
             })
         }
         return arr.toString()
+    }
+
+    fun decodeReactions(json: String): Map<String, List<String>> {
+        if (json.isBlank() || json == "{}") return emptyMap()
+        return try {
+            val obj = JSONObject(json)
+            val result = linkedMapOf<String, List<String>>()
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val emoji = keys.next()
+                val arr = obj.optJSONArray(emoji) ?: continue
+                val uids = (0 until arr.length())
+                    .mapNotNull { arr.optString(it).takeIf { uid -> uid.isNotBlank() } }
+                    .distinct()
+                if (emoji.isNotBlank() && uids.isNotEmpty()) {
+                    result[emoji] = uids
+                }
+            }
+            result
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun encodeReactions(map: Map<String, List<String>>): String {
+        val root = JSONObject()
+        map.forEach { (emoji, uids) ->
+            val clean = uids.filter { it.isNotBlank() }.distinct()
+            if (emoji.isNotBlank() && clean.isNotEmpty()) {
+                root.put(emoji, JSONArray().apply { clean.forEach { put(it) } })
+            }
+        }
+        return root.toString()
     }
 }

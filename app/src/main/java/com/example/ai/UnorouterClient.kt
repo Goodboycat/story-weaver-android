@@ -139,7 +139,7 @@ object UnorouterClient {
             if (apiKey.isEmpty()) {
                 return@withContext Result.failure(
                     IllegalStateException(
-                        "No API key configured. Open Settings to enter your API key (or set OPENROUTER_API_KEY / UNOROUTER_API_KEY in AI Studio Secrets), or switch to Gemini (Firebase AI)."
+                        "No API key configured. Open Settings or the Model & API panel to enter your UnoRouter API key."
                     )
                 )
             }

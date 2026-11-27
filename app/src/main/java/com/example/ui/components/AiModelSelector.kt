@@ -1,9 +1,8 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -22,7 +22,8 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,7 +51,6 @@ import com.example.ai.AiModelDefaults
 import com.example.ai.AiProvider
 import com.example.ai.UnorouterClient
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AiModelSelectorBar(
     selectedProvider: AiProvider,
@@ -59,7 +59,7 @@ fun AiModelSelectorBar(
     onSelectModel: (String) -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
-    endpointUrl: String = AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT,
+    endpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
     apiKey: String = "",
     onSelectEndpointUrl: ((String) -> Unit)? = null,
     onSelectApiKey: ((String) -> Unit)? = null,
@@ -83,6 +83,11 @@ fun AiModelSelectorBar(
     var draftImageApiKey by remember(imageApiKey) { mutableStateOf(imageApiKey) }
     var showImageKeyText by remember { mutableStateOf(false) }
     var imageFeedback by remember { mutableStateOf<String?>(null) }
+
+    var showProviderMenu by remember { mutableStateOf(false) }
+    var showTextModelMenu by remember { mutableStateOf(false) }
+    var showEndpointMenu by remember { mutableStateOf(false) }
+    var showImageModelMenu by remember { mutableStateOf(false) }
 
     val presets = when (selectedProvider) {
         AiProvider.OPENROUTER -> AiModelDefaults.presetOpenRouterModels
@@ -125,17 +130,38 @@ fun AiModelSelectorBar(
                 )
             }
 
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                AiProvider.entries.forEach { provider ->
-                    FilterChip(
-                        selected = selectedProvider == provider,
-                        onClick = { onSelectProvider(provider) },
-                        label = { Text(provider.label) },
-                        modifier = Modifier.testTag("ai_provider_chip_${provider.key}")
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { showProviderMenu = true },
+                    modifier = Modifier.fillMaxWidth().testTag("ai_provider_dropdown_button")
+                ) {
+                    Text(
+                        text = "Provider: ${selectedProvider.label}",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Select AI provider")
+                }
+                DropdownMenu(
+                    expanded = showProviderMenu,
+                    onDismissRequest = { showProviderMenu = false }
+                ) {
+                    AiProvider.entries.forEach { provider ->
+                        DropdownMenuItem(
+                            text = { Text(provider.label) },
+                            leadingIcon = {
+                                if (selectedProvider == provider) {
+                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                }
+                            },
+                            onClick = {
+                                onSelectProvider(provider)
+                                showProviderMenu = false
+                            },
+                            modifier = Modifier.testTag("ai_provider_option_${provider.key}")
+                        )
+                    }
                 }
             }
 
@@ -160,7 +186,7 @@ fun AiModelSelectorBar(
                             text = if (showAdvancedApiConfig) {
                                 "Enter your API key below (or paste a cURL command) to enable this endpoint."
                             } else {
-                                "Configure OPENROUTER_API_KEY in AI Studio Secrets or enter your key in Settings."
+                                "Configure UNOROUTER_API_KEY in AI Studio Secrets or enter your key in Settings."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
@@ -210,7 +236,7 @@ fun AiModelSelectorBar(
                     value = draftModel,
                     onValueChange = { draftModel = it },
                     label = { Text("Chat / Parser Model ID") },
-                    placeholder = { Text(AiModelDefaults.DEFAULT_OPENROUTER_MODEL) },
+                    placeholder = { Text(AiModelDefaults.DEFAULT_UNOROUTER_MODEL) },
                     singleLine = true,
                     modifier = Modifier.weight(1f).testTag("ai_model_input")
                 )
@@ -228,25 +254,35 @@ fun AiModelSelectorBar(
                 }
             }
 
-            if (!compact) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { showTextModelMenu = true },
+                    modifier = Modifier.fillMaxWidth().testTag("ai_model_dropdown_button")
+                ) {
+                    Text(
+                        text = "Choose Model ($selectedModel)",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Open model list")
+                }
+                DropdownMenu(
+                    expanded = showTextModelMenu,
+                    onDismissRequest = { showTextModelMenu = false }
                 ) {
                     presets.forEach { preset ->
-                        FilterChip(
-                            selected = selectedModel == preset,
+                        DropdownMenuItem(
+                            text = { Text(preset) },
+                            leadingIcon = {
+                                if (selectedModel == preset) {
+                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                }
+                            },
                             onClick = {
                                 draftModel = preset
                                 onSelectModel(preset)
-                            },
-                            label = {
-                                Text(
-                                    text = preset,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
+                                showTextModelMenu = false
                             },
                             modifier = Modifier.testTag("ai_preset_model_$preset")
                         )
@@ -256,21 +292,43 @@ fun AiModelSelectorBar(
 
             if (showAdvancedApiConfig && isExternalRest) {
                 if (onSelectEndpointUrl != null) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        AiModelDefaults.presetWebsiteEndpoints.forEach { (siteLabel, siteUrl) ->
-                            FilterChip(
-                                selected = endpointUrl.equals(siteUrl, ignoreCase = true),
-                                onClick = {
-                                    draftEndpoint = siteUrl
-                                    onSelectEndpointUrl.invoke(siteUrl)
-                                    curlFeedback = "Switched website endpoint to $siteLabel."
-                                },
-                                label = { Text(siteLabel, style = MaterialTheme.typography.labelSmall) },
-                                modifier = Modifier.testTag("ai_website_preset_${siteLabel.lowercase()}")
+                    val activeSiteLabel = AiModelDefaults.presetWebsiteEndpoints
+                        .firstOrNull { (_, u) -> endpointUrl.equals(u, ignoreCase = true) }?.first
+                        ?: "Custom Endpoint"
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { showEndpointMenu = true },
+                            modifier = Modifier.fillMaxWidth().testTag("ai_website_dropdown_button")
+                        ) {
+                            Text(
+                                text = "Website Provider: $activeSiteLabel",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
                             )
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Choose website provider")
+                        }
+                        DropdownMenu(
+                            expanded = showEndpointMenu,
+                            onDismissRequest = { showEndpointMenu = false }
+                        ) {
+                            AiModelDefaults.presetWebsiteEndpoints.forEach { (siteLabel, siteUrl) ->
+                                DropdownMenuItem(
+                                    text = { Text("$siteLabel ($siteUrl)") },
+                                    leadingIcon = {
+                                        if (endpointUrl.equals(siteUrl, ignoreCase = true)) {
+                                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        }
+                                    },
+                                    onClick = {
+                                        draftEndpoint = siteUrl
+                                        onSelectEndpointUrl.invoke(siteUrl)
+                                        curlFeedback = "Switched website endpoint to $siteLabel."
+                                        showEndpointMenu = false
+                                    },
+                                    modifier = Modifier.testTag("ai_website_preset_${siteLabel.lowercase()}")
+                                )
+                            }
                         }
                     }
                 }
@@ -365,7 +423,7 @@ fun AiModelSelectorBar(
                         Spacer(Modifier.width(6.dp))
                         Text("Import cURL", maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    if (apiKey.isNotBlank() || endpointUrl != AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT) {
+                    if (apiKey.isNotBlank() || endpointUrl != AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT) {
                         OutlinedButton(
                             onClick = {
                                 val defUrl = if (selectedProvider == AiProvider.OPENROUTER) {
@@ -417,7 +475,7 @@ fun AiModelSelectorBar(
                     Text(
                         text = "POST $previewUrl\n" +
                             "Authorization: $maskedKey\n" +
-                            "{\"model\": \"${draftModel.trim().ifBlank { AiModelDefaults.DEFAULT_OPENROUTER_MODEL }}\", \"messages\": [...]}",
+                            "{\"model\": \"${draftModel.trim().ifBlank { AiModelDefaults.DEFAULT_UNOROUTER_MODEL }}\", \"messages\": [...]}",
                         style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(8.dp)
@@ -484,26 +542,38 @@ fun AiModelSelectorBar(
                     }
                 }
 
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    AiModelDefaults.presetImageModels.forEach { preset ->
-                        FilterChip(
-                            selected = imageModel == preset,
-                            onClick = {
-                                draftImageModel = preset
-                                onSelectImageModel(preset)
-                            },
-                            label = {
-                                Text(
-                                    text = preset.substringAfter("/"),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { showImageModelMenu = true },
+                        modifier = Modifier.fillMaxWidth().testTag("ai_image_model_dropdown_button")
+                    ) {
+                        Text(
+                            text = "Choose Image Model ($imageModel)",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Open image model list")
+                    }
+                    DropdownMenu(
+                        expanded = showImageModelMenu,
+                        onDismissRequest = { showImageModelMenu = false }
+                    ) {
+                        AiModelDefaults.presetImageModels.forEach { preset ->
+                            DropdownMenuItem(
+                                text = { Text(preset) },
+                                leadingIcon = {
+                                    if (imageModel == preset) {
+                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    }
+                                },
+                                onClick = {
+                                    draftImageModel = preset
+                                    onSelectImageModel(preset)
+                                    showImageModelMenu = false
+                                }
+                            )
+                        }
                     }
                 }
 

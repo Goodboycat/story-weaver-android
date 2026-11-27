@@ -45,21 +45,9 @@ data class UserSettings(
     val customAccentArgb: Long? = null,
     val textScale: TextScalePreset = TextScalePreset.MEDIUM,
     val languageCode: String = "en",
-    val aiProvider: AiProvider = when {
-        UnorouterClient.hasOpenRouterBuildConfigKey() -> AiProvider.OPENROUTER
-        UnorouterClient.hasBuildConfigKey() -> AiProvider.UNOROUTER
-        else -> AiProvider.GEMINI
-    },
-    val aiModel: String = when {
-        UnorouterClient.hasOpenRouterBuildConfigKey() -> AiModelDefaults.DEFAULT_OPENROUTER_MODEL
-        UnorouterClient.hasBuildConfigKey() -> AiModelDefaults.DEFAULT_UNOROUTER_MODEL
-        else -> AiModelDefaults.DEFAULT_GEMINI_MODEL
-    },
-    val aiEndpointUrl: String = if (UnorouterClient.hasOpenRouterBuildConfigKey()) {
-        AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT
-    } else {
-        AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT
-    },
+    val aiProvider: AiProvider = AiProvider.UNOROUTER,
+    val aiModel: String = AiModelDefaults.DEFAULT_UNOROUTER_MODEL,
+    val aiEndpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
     val aiApiKey: String = "",
     val aiImageEndpointUrl: String = AiModelDefaults.DEFAULT_IMAGE_ENDPOINT,
     val aiImageModel: String = AiModelDefaults.DEFAULT_IMAGE_MODEL,
@@ -83,14 +71,20 @@ class PreferencesRepository(private val context: Context) {
         val AI_IMAGE_API_KEY = stringPreferencesKey("ai_image_api_key")
     }
 
+    private val brokenTextModels = setOf(
+        "k-exaone-2.5:free",
+        "gemini-3-pro:free",
+        "gemini-3.8-flash",
+        "google/gemini-2.0-flash-exp:free",
+    )
+
+    private val brokenImageModels = setOf(
+        "gemini-3-pro:free",
+    )
+
     val settingsFlow: Flow<UserSettings> = context.storyWeaverDataStore.data.map { prefs ->
         val storedKey = prefs[Keys.AI_API_KEY].orEmpty()
-        val defaultProvider = when {
-            UnorouterClient.hasOpenRouterBuildConfigKey() -> AiProvider.OPENROUTER
-            UnorouterClient.isConfigured(storedKey, AiProvider.UNOROUTER) -> AiProvider.UNOROUTER
-            else -> AiProvider.GEMINI
-        }
-        val provider = prefs[Keys.AI_PROVIDER]?.let { AiProvider.fromKey(it) } ?: defaultProvider
+        val provider = prefs[Keys.AI_PROVIDER]?.let { AiProvider.fromKey(it) } ?: AiProvider.UNOROUTER
         val defaultModel = when (provider) {
             AiProvider.OPENROUTER -> AiModelDefaults.DEFAULT_OPENROUTER_MODEL
             AiProvider.UNOROUTER -> AiModelDefaults.DEFAULT_UNOROUTER_MODEL
@@ -101,19 +95,29 @@ class PreferencesRepository(private val context: Context) {
         } else {
             AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT
         }
+        val rawModel = prefs[Keys.AI_MODEL]?.trim().orEmpty()
+        val resolvedModel = when {
+            rawModel.isEmpty() -> defaultModel
+            rawModel in brokenTextModels && provider != AiProvider.GEMINI -> AiModelDefaults.DEFAULT_UNOROUTER_MODEL
+            else -> rawModel
+        }
+        val rawImageModel = prefs[Keys.AI_IMAGE_MODEL]?.trim().orEmpty()
+        val resolvedImageModel = when {
+            rawImageModel.isEmpty() || rawImageModel in brokenImageModels -> AiModelDefaults.DEFAULT_IMAGE_MODEL
+            else -> rawImageModel
+        }
         UserSettings(
             themePreset = ThemePreset.fromKey(prefs[Keys.THEME_PRESET]),
             customAccentArgb = prefs[Keys.CUSTOM_ACCENT]?.takeIf { it != 0L },
             textScale = TextScalePreset.fromKey(prefs[Keys.TEXT_SCALE]),
             languageCode = prefs[Keys.LANGUAGE] ?: "en",
             aiProvider = provider,
-            aiModel = prefs[Keys.AI_MODEL]?.takeIf { it.isNotBlank() } ?: defaultModel,
+            aiModel = resolvedModel,
             aiEndpointUrl = prefs[Keys.AI_ENDPOINT_URL]?.takeIf { it.isNotBlank() } ?: defaultEndpoint,
             aiApiKey = storedKey,
             aiImageEndpointUrl = prefs[Keys.AI_IMAGE_ENDPOINT_URL]?.takeIf { it.isNotBlank() }
                 ?: AiModelDefaults.DEFAULT_IMAGE_ENDPOINT,
-            aiImageModel = prefs[Keys.AI_IMAGE_MODEL]?.takeIf { it.isNotBlank() }
-                ?: AiModelDefaults.DEFAULT_IMAGE_MODEL,
+            aiImageModel = resolvedImageModel,
             aiImageApiKey = prefs[Keys.AI_IMAGE_API_KEY].orEmpty(),
         )
     }
@@ -152,7 +156,7 @@ class PreferencesRepository(private val context: Context) {
             val currentEndpoint = prefs[Keys.AI_ENDPOINT_URL].orEmpty()
             when (provider) {
                 AiProvider.OPENROUTER -> {
-                    if (currentModel.isBlank() || currentModel.startsWith("gemini-") || currentModel == AiModelDefaults.DEFAULT_UNOROUTER_MODEL) {
+                    if (currentModel.isBlank() || currentModel in brokenTextModels || currentModel.startsWith("gemini-")) {
                         prefs[Keys.AI_MODEL] = AiModelDefaults.DEFAULT_OPENROUTER_MODEL
                     }
                     if (currentEndpoint.isBlank() || currentEndpoint == AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT) {
@@ -160,7 +164,7 @@ class PreferencesRepository(private val context: Context) {
                     }
                 }
                 AiProvider.UNOROUTER -> {
-                    if (currentModel.isBlank() || currentModel.startsWith("gemini-") || currentModel == AiModelDefaults.DEFAULT_OPENROUTER_MODEL) {
+                    if (currentModel.isBlank() || currentModel in brokenTextModels || currentModel.startsWith("gemini-")) {
                         prefs[Keys.AI_MODEL] = AiModelDefaults.DEFAULT_UNOROUTER_MODEL
                     }
                     if (currentEndpoint.isBlank() || currentEndpoint == AiModelDefaults.DEFAULT_OPENROUTER_ENDPOINT) {
