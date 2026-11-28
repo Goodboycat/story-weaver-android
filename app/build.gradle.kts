@@ -15,6 +15,8 @@ android {
   defaultConfig {
     applicationId = "com.aistudio.storyweaver.d66efx"
     minSdk = 26 // Jitsi Meet SDK needs 26 (Android 8)
+    // Real phones only (drops x86 emulator libs): keeps the APK smaller now that the Jitsi SDK ships native code.
+    ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"

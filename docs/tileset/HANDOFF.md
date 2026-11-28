@@ -150,6 +150,9 @@ A2. (non-tileset) Voice room is in-app: `ui/components/VoiceRoomDialog.kt` (Jits
     `parseSingleOp`, direct cells and token `sprite` (`AiMapTokenSpec.sprite` -> `MapToken.sprite`). `MapTileCatalog.promptGuide()`
     = catalogue grouped by cat (kingdom buildings compressed to `<kingdom>_<part>`). `mapArchitectSystemPrompt` rewritten around
     tile names (old `palettePromptGuide` no longer in the prompt). The atlas must be loaded before the AI call (GridMapTab does it).
+A4. (non-tileset) Voice room = native Jitsi Meet SDK 13.3.3 (`ui/components/VoiceRoomNative.kt`, repo in `settings.gradle.kts`,
+    dep in `app/build.gradle.kts`): voice, camera, chat and PHONE SCREEN SHARE inside the app; WebView room kept as fallback.
+    minSdk 26, `abiFilters` arm64-v8a + armeabi-v7a. SDK 13 Builder has no `setAudioOnly`. Read `docs/VOICE_ROOM.md`.
 9c-code. (CI-compiled only) `MapMacroOps.begin(grid)` / `note(op)`: the parser records the ground + occupied cells of the map being
     edited and of every earlier op, so a `biome` WITHOUT `terrains` only scatters props on what is already there (skips liquid /
     wall / cliff / roof / forest / lines / objects). `kingdom` draws a road spur from every building door to the nearest road.
@@ -170,8 +173,9 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 - (6a-6e written; they still have to pass the CI compile - see 9b, do that EARLY)
 
 ### 10. Voice (after the tileset, or when the owner asks)
-- 10a. Phone screen share: swap the WebView for the native Jitsi Meet SDK - exact steps in `docs/VOICE_ROOM.md`.
-- 10b. Check on a device that A1/A2 behave (not device-tested; only CI-compiled).
+- 10b. Device-test the native room (join from two phones, `...` -> Share screen). If `meet.jit.si` demands a moderator
+  login, follow "If meet.jit.si gets annoying" in `docs/VOICE_ROOM.md` (owner steps, free).
+- 10c. Optional: pass the player's display name to `VoiceRoomNative.launch(context, room, displayName)` (now `null`).
 
 ### 9. Finish
 - 9c. Device-test the Map AI (needs the owner's phone; nothing more to code unless a test fails). If a keyword is missing
