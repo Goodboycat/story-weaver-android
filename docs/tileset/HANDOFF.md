@@ -91,6 +91,8 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     water spout/bubbles/coral/shell, air clouds (1-3 wide)/whirlwind/arch, earth arch/geode/pillar, mechanus gears (1x1, 2x2),
     boiler/piston/clock 1x2 and `mechanus_pipe_1..15` (NESW bitmask like line sets), abyssal corals/kelp 1x2/shells/clam_pearl/
     wreck 3x2/anchor, underdark glowshrooms/glow_spire/arch. Sheet is now 4494 tiles, 840 objects.
+4x. Atlas packer is now shelf packing (one open shelf per block height) - master.png went from 1024x9648 to 1024x1184.
+    Tile indices changed; nothing may hard-code an index, always look names up in atlas.json.
 
 ## TODO (in order, 2-3 lettered tasks per chat; push after each)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.

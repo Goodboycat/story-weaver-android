@@ -503,27 +503,25 @@ class Atlas:
     COLS = 64
     def __init__(s):
         s.rows = []          # list of np rows (16 x COLS*16)
-        s.cx = 0; s.cy = 0; s.band = 1
+        s.shelves = {}; s.nrow = 0   # {block height: [next x, row]}
         s.sections = []      # (name, row_start)
         s.terrains = {}; s.lines = {}; s.objects = {}; s.sprites = {}; s.meta = {}
         s.count = 0
     def _ensure(s, rows):
         while len(s.rows) < rows: s.rows.append(np.zeros((T, s.COLS * T, 4), np.uint8))
     def section(s, name):
-        if s.cx: s.cy += s.band; s.cx = 0; s.band = 1
-        s.sections.append((name, s.cy))
+        s.sections.append((name, s.nrow))
     def place(s, tiles, w, h=1):
-        """place w*h tiles (row-major list) as one block, returns index of top-left"""
-        if s.cx + w > s.COLS or (h != s.band and s.cx):
-            s.cy += s.band; s.cx = 0
-        s.band = h if s.cx == 0 else max(s.band, h)
-        s._ensure(s.cy + h)
+        """place w*h tiles (row-major list) as one block, returns index of top-left.
+        Shelf packing: one open shelf per block height, so mixed sizes do not waste rows."""
+        sh = s.shelves.get(h)
+        if sh is None or sh[0] + w > s.COLS:
+            sh = s.shelves[h] = [0, s.nrow]; s.nrow += h; s._ensure(s.nrow)
         for i, t in enumerate(tiles):
-            x, y = s.cx + i % w, s.cy + i // w
+            x, y = sh[0] + i % w, sh[1] + i // w
             s.rows[y][:, x * T:(x + 1) * T] = t
-        idx = s.cy * s.COLS + s.cx
-        s.cx += w; s.count += len(tiles)
-        if s.cx >= s.COLS: s.cy += s.band; s.cx = 0; s.band = 1
+        idx = sh[1] * s.COLS + sh[0]
+        sh[0] += w; s.count += len(tiles)
         return idx
     def terrain(s, name, tiles8, prio, **meta):
         s.terrains[name] = dict(i=s.place(tiles8, len(tiles8)), n=len(tiles8) - 4, p=prio, **meta)
@@ -539,5 +537,4 @@ class Atlas:
         """four canvases: down, left, right, up"""
         s.sprites[name] = dict(i=s.place([c.a for c in four], 4), **meta)
     def image(s):
-        s._ensure(s.cy + (s.band if s.cx else 0))
         return np.concatenate(s.rows, 0)
