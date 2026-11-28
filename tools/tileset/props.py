@@ -515,7 +515,92 @@ def part_monument(A):
                  ('rubble_sand', rubble('#c8a070', 3))):
         o(n, c, solid=1)
 
-PARTS = [part_nature, part_village, part_monument]
+# ------------------------------------------------------------------ doors, stairs, windows (2d)
+DARKIN = (30, 24, 36)
+
+def door(col=WOOD, trim=IRON, d='s', opened=False):
+    """s/n = front view (n = inside face with crossbar), e = thin side view on the east edge, w = flip of e"""
+    if d == 'w': return door(col, trim, 'e', opened).flip()
+    c = C(); r = ramp(col); t = ramp(trim)
+    if d == 'e':
+        c.box(11, 1, 13, 15, STONE)
+        if opened: c.rect(12, 3, 12, 15, DARKIN); c.box(3, 4, 10, 6, col); c.box(3, 6, 10, 15, col); c.rect(3, 9, 10, 9, t[1]); c.p(4, 11, hx(GOLD))
+        else: c.box(11, 3, 13, 15, col); c.rect(11, 6, 13, 6, t[2]); c.rect(11, 12, 13, 12, t[2]); c.p(10, 10, hx(GOLD))
+        return fin(c)
+    c.box(2, 1, 13, 15, STONE); c.clear(2, 1); c.clear(13, 1)
+    if opened: c.rect(4, 3, 11, 15, DARKIN); c.box(4, 3, 5, 15, col); c.rect(6, 13, 11, 15, (58, 48, 60)); c.p(5, 10, hx(GOLD))
+    else:
+        c.box(4, 3, 11, 15, col)
+        for x in (6, 9): c.rect(x, 4, x, 15, r[1])
+        if d == 'n': c.box(4, 8, 11, 9, trim)
+        else: c.rect(4, 5, 11, 5, t[2]); c.rect(4, 12, 11, 12, t[2]); c.box(9, 8, 10, 9, GOLD)
+    return fin(c)
+
+def stairs(col=STONE, up=True, d='n'):
+    """full-tile floor piece; d = the side you walk towards (up: higher side, down: deeper side)"""
+    c = C(); r = ramp(col); c.rect(0, 0, 15, 15, r[1])
+    for i in range(5):
+        y = 13 - i * 3; k = (i if up else 4 - i)
+        top = r[min(4, 1 + k)] if up else r[max(0, 3 - i)]
+        c.rect(1, y, 14, y + 1, top); c.rect(1, y + 2, 14, y + 2, r[0] if up else DARKIN)
+        if not up and i == 4: c.rect(1, 0, 14, 2, DARKIN)
+    c.rect(0, 0, 0, 15, r[3] if up else r[0]); c.rect(15, 0, 15, 15, r[0])
+    return c.rot({'n': 0, 'w': 1, 's': 2, 'e': 3}[d])
+
+def ladder(up=True, wood='#a8703a'):
+    c = C(); w = ramp(wood)
+    if not up: c.box(2, 2, 13, 13, STONE); c.rect(4, 4, 11, 11, DARKIN)
+    y0 = 0 if up else 3
+    for x in (4, 10): c.box(x, y0, x + 1, 15 if up else 10, wood)
+    for y in range(y0 + 2, 15 if up else 10, 3): c.rect(6, y, 9, y, w[3]); c.rect(6, y + 1, 9, y + 1, w[1])
+    return fin(c)
+
+def trapdoor(opened=False, wood='#8a5a34'):
+    c = C(); c.box(2, 2, 13, 13, wood); w = ramp(wood)
+    if opened: c.rect(3, 5, 12, 12, DARKIN); c.box(2, 2, 13, 4, wood); px(c, ((5, 7), (5, 9), (5, 11), (9, 7), (9, 9), (9, 11)), w[2]); c.rect(6, 8, 8, 8, w[1]); c.rect(6, 10, 8, 10, w[1])
+    else:
+        for x in (5, 8, 11): c.rect(x, 3, x, 12, w[1])
+        c.rect(2, 4, 13, 4, ramp(IRON)[2]); c.rect(2, 11, 13, 11, ramp(IRON)[2]); c.box(7, 7, 8, 8, IRON)
+    return fin(c)
+
+def window(frame=WOOD, kind='glass'):
+    c = C(); c.box(3, 3, 12, 12, frame); g = {'glass': (130, 190, 230), 'lit': (250, 220, 110), 'dark': (50, 56, 84)}.get(kind, (130, 190, 230))
+    c.rect(4, 4, 11, 11, g)
+    if kind == 'stained':
+        for i, col in enumerate(((216, 60, 70), (240, 200, 60), (80, 130, 230), (70, 160, 80))): c.rect(4 + i % 2 * 4, 4 + i // 2 * 4, 7 + i % 2 * 4, 7 + i // 2 * 4, col)
+        c.ell(7.5, 7.5, 1.6, 1.6, '#f0f0f8', flat=True)
+    else: px(c, ((5, 5), (6, 5), (5, 6), (9, 9)), (240, 250, 255) if kind != 'dark' else (90, 100, 140))
+    f = ramp(frame)
+    if kind == 'barred':
+        for x in (5, 7, 9, 11): c.rect(x, 4, x, 11, ramp(IRON)[0])
+    else: c.rect(7, 4, 8, 11, f[2]); c.rect(4, 7, 11, 8, f[2])
+    c.box(2, 12, 13, 13, frame)
+    return fin(c)
+
+def archway(col=STONE, vine=False):
+    c = C(32, 32); r = ramp(col); c.box(1, 6, 30, 31, col); c.ell(15.5, 8, 14.5, 7, col); speck(c, col, 2, 0.08)
+    for y in range(10, 32):
+        for x in range(8, 24):
+            if y >= 18 or ((x - 15.5) / 8) ** 2 + ((y - 18) / 8) ** 2 <= 1: c.clear(x, y)
+    for y in (12, 18, 24): c.rect(1, y, 7, y, r[1]); c.rect(24, y, 30, y, r[1])
+    c.box(13, 2, 18, 6, col); c.p(15, 4, r[4]); c.p(16, 4, r[4])
+    if vine: cap(c, MOSS, 3, 5, 12)
+    return fin(c)
+
+def part_doors(A):
+    A.section('props_doors'); o = lambda n, c, **m: A.obj(n, c, cat='door', **m)
+    for mat, col, trim in (('wood', WOOD, IRON), ('iron', IRON, '#4a5060'), ('gold', GOLD, '#b06a18'), ('dark', '#4a3848', '#8a3a4a')):
+        for st in ('closed', 'open'):
+            for d in 'nesw': o('door_%s_%s_%s' % (mat, st, d), door(col, trim, d, st == 'open'), solid=int(st == 'closed'))
+    for mat, col in (('stone', STONE), ('wood', '#a8703a')):
+        for ud in ('up', 'down'):
+            for d in 'nesw': o('stairs_%s_%s_%s' % (mat, ud, d), stairs(col, ud == 'up', d), solid=0)
+    for n, c in (('ladder_up', ladder()), ('ladder_down', ladder(False)), ('trapdoor', trapdoor()), ('trapdoor_open', trapdoor(True)),
+                 ('window_wood', window()), ('window_stone', window(STONE)), ('window_lit', window(WOOD, 'lit')), ('window_dark', window(STONE, 'dark')),
+                 ('window_barred', window(STONE, 'barred')), ('window_stained', window(STONE, 'stained'))): o(n, c, solid=0)
+    o('archway', archway(), solid=0); o('archway_vine', archway(vine=True), solid=0); o('archway_dark', archway(DARKSTONE), solid=0)
+
+PARTS = [part_nature, part_village, part_monument, part_doors]
 
 def build(A):
     for p in PARTS: p(A)

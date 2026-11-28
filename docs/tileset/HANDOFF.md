@@ -12,7 +12,8 @@ drives from plain text ("make a snowy kingdom with a river"), including edits to
   `EmojiPickerDialog.kt` l.131-132) -> swap for a neutral beast emoji / tileset sprite.
 - Everything faces FOUR directions (sprites: down, left, right, up).
 - Pull before push, push after every task. Never ask the owner questions; decide.
-- Each chat has < 75k tokens. Do ONE numbered task below per chat (two if small), build, look at
+- Each chat has < 75k tokens. Do TWO or THREE lettered tasks below per chat (a props part costs ~8k tokens:
+  one write, one build, one preview look, one fix), build, look at
   `docs/tileset/props.png` / `demo.png`, move the task from TODO to DONE here, commit, push, stop.
   Do not `cat` whole source files: use `grep -n "^def \|^class "` and `sed -n` on the lines you need.
 
@@ -58,14 +59,15 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
 2c. Props / monument (`part_monument`, 35 objects, cat `monument`): graves x6, statues 1x2 (knight, mage, king,
     guardian, broken, dark), pillars 1x2 (stone, marble, broken, dark, vine, sand), obelisks 1x2 x3, fountains 2x2
     x3, shrines x3, standing stones x3, stone_circle 2x2, rubble x4. Shared colours: MARBLE, DARKSTONE, MOSS, RUNE.
+2d. Props / doors (`part_doors`, 61 objects, cat `door`): `door_{wood,iron,gold,dark}_{closed,open}_{n,e,s,w}`
+    (s = outside face, n = inside face with crossbar, e/w = thin side view on that edge; closed = solid),
+    `stairs_{stone,wood}_{up,down}_{n,e,s,w}` (opaque full-tile floor pieces, rotated), ladder_up/down,
+    trapdoor(_open), windows x6 (wood, stone, lit, dark, barred, stained), archway 2x2 x3 (walk-through).
 
-## TODO (in order, one task per chat)
+## TODO (in order, 2-3 lettered tasks per chat; push after each)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
 ### 2. Props (rest) - `props.py`, one `part_*` each
-- 2d. `part_doors` (cat `door`): doors wood/iron/gold/dark x open+closed x N/E/S/W (S/N = front
-  view, E/W = thin side view; W = flip of E), stairs up/down x 4 dirs (stone + wood), ladders
-  up/down, trapdoor, windows (wood, stone, lit, barred, stained), archway.
 - 2e. `part_furniture` (cat `furniture`): bed single/double (1x2, 2x2), table 2x1 + round, chair
   x4 dirs, stool, shelf, bookshelf (1x2), counter (line-like 3 pieces), stove, fireplace, throne
   (1x2), altar, anvil, forge, cauldron, loom, rug round, wardrobe, mirror, barrel rack, weapon rack.
@@ -126,6 +128,9 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 
 ## Known art notes (fix when touching the file)
 - `tree_snowy` (pine): snow only shows on the top tier; widen the snow band on the lower tiers.
+- `stairs_*`: steps read as flat stripes; add a side stringer / perspective taper.
+- `window_stained`: centre rosette is hidden by the frame cross; `trapdoor_open` ladder is hard to read.
+- `door_*_closed_e/w` are a 3px strip by design (wall edge); thicken to 4px if invisible on device.
 - Flowers / reeds are thin at 1x; fine as ground cover, thicken if they vanish on device.
 
 Not yet verified: the art has not been reviewed on a device; check `docs/tileset/demo.png` and
