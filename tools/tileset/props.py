@@ -555,6 +555,10 @@ def stairs(col=STONE, up=True, d='n'):
         top = r[min(4, 1 + k)] if up else r[max(0, 3 - i)]
         c.rect(1, y, 14, y + 1, top); c.rect(1, y + 2, 14, y + 2, r[0] if up else DARKIN)
         if not up and i == 4: c.rect(1, 0, 14, 2, DARKIN)
+    for i in range(5):   # perspective taper: side stringers get wider towards the far (top) end
+        y = 13 - i * 3; w = (i + 1) // 2 if up else (5 - i) // 2
+        for yy in range(max(0, y), min(16, y + 3)):
+            c.rect(0, yy, w, yy, r[3] if up else r[0]); c.rect(15 - w, yy, 15, yy, r[0]); c.p(w + 1, yy, DARKIN if not up else r[0])
     c.rect(0, 0, 0, 15, r[3] if up else r[0]); c.rect(15, 0, 15, 15, r[0])
     return c.rot({'n': 0, 'w': 1, 's': 2, 'e': 3}[d])
 
@@ -568,7 +572,7 @@ def ladder(up=True, wood='#a8703a'):
 
 def trapdoor(opened=False, wood='#8a5a34'):
     c = C(); c.box(2, 2, 13, 13, wood); w = ramp(wood)
-    if opened: c.rect(3, 5, 12, 12, DARKIN); c.box(2, 2, 13, 4, wood); px(c, ((5, 7), (5, 9), (5, 11), (9, 7), (9, 9), (9, 11)), w[2]); c.rect(6, 8, 8, 8, w[1]); c.rect(6, 10, 8, 10, w[1])
+    if opened: c.rect(3, 5, 12, 12, DARKIN); c.box(2, 2, 13, 4, wood); L = ramp('#d8a860'); c.rect(5, 5, 5, 12, L[3]); c.rect(10, 5, 10, 12, L[3]); [c.rect(6, y, 9, y, L[4 if y < 9 else 2]) for y in (6, 8, 10, 12)]
     else:
         for x in (5, 8, 11): c.rect(x, 3, x, 12, w[1])
         c.rect(2, 4, 13, 4, ramp(IRON)[2]); c.rect(2, 11, 13, 11, ramp(IRON)[2]); c.box(7, 7, 8, 8, IRON)
@@ -584,6 +588,8 @@ def window(frame=WOOD, kind='glass'):
     f = ramp(frame)
     if kind == 'barred':
         for x in (5, 7, 9, 11): c.rect(x, 4, x, 11, ramp(IRON)[0])
+    elif kind == 'stained':   # thin lead lines + rosette drawn on top so it stays visible
+        c.rect(7, 4, 7, 11, f[0]); c.rect(4, 7, 11, 7, f[0]); c.rect(6, 6, 9, 9, (248, 240, 192)); px(c, ((6, 6), (9, 6), (6, 9), (9, 9)), f[0]); px(c, ((7, 7), (8, 8)), (255, 255, 255)); px(c, ((8, 7), (7, 8)), (240, 200, 60))
     else: c.rect(7, 4, 8, 11, f[2]); c.rect(4, 7, 11, 8, f[2])
     c.box(2, 12, 13, 13, frame)
     return fin(c)

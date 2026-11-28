@@ -175,6 +175,9 @@ A7. 9d art polish (part 1): `hydra_*` thicker necks + bigger heads with a jaw li
     over the swirl tail (keep fists LOW: raised fists read as horns, which the no-demon rule forbids); `flat` roofs (dwarven,
     jungle temple, pirate tower) get a skylight hatch + vent on buildings >= 20px wide.
 
+A8. 9d art polish (part 2): `stairs_*` have tapered side stringers (perspective), `window_stained` rosette drawn on top of thin
+    lead lines, `trapdoor_open` shows a bright ladder (rails + 4 rungs) in the dark hole.
+
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
@@ -191,8 +194,7 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 ### 9. Finish
 - 9c. Device-test the Map AI (needs the owner's phone; nothing more to code unless a test fails). If a keyword is missing
   from `CAT_WORDS` the AI just guesses a name and it is snapped - add the word.
-- 9d. Art polish from "Known art notes" below (pick 2-3 per chat; left: stairs stringers, window_stained rosette,
-  trapdoor_open ladder, kraken side view, griffin/chimera to 2x2, castle side towers vs keep windows).
+- 9d. Art polish from "Known art notes" below (pick 2-3 per chat; left: kraken side view, griffin/chimera to 2x2, castle side towers vs keep windows).
 - 9b. After every push check the GitHub Actions APK build (last 3 runs were green) and fix what breaks.
 
 ## Known art notes (fix when touching the file)
@@ -200,8 +202,6 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
   `quad` side views of two neighbours touch nose-to-nose only in the preview sheet (not a bug).
 - Kingdoms: elven `leaf` roofs read as a bush -
   fine, but houses could use a visible trunk; `*_castle` side towers overlap the keep windows a little.
-- `stairs_*`: steps read as flat stripes; add a side stringer / perspective taper.
-- `window_stained`: centre rosette is hidden by the frame cross; `trapdoor_open` ladder is hard to read.
 - `web_*` are faint on light ground (fine on dark dungeon floor); `brazier_*` legs read a bit like a basket.
 - `door_*_closed_e/w` are a 3px strip by design (wall edge); thicken to 4px if invisible on device.
 - Flowers / reeds are thin at 1x; fine as ground cover, thicken if they vanish on device.
