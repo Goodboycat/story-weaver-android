@@ -9,7 +9,7 @@ ROOT = os.path.join(HERE, '..', '..')
 OUTD = os.path.join(ROOT, 'app/src/main/assets/tileset'); DOC = os.path.join(ROOT, 'docs/tileset')
 os.makedirs(OUTD, exist_ok=True); os.makedirs(DOC, exist_ok=True)
 A = Atlas(); terrains.build_terrains(A); terrains.build_lines(A)
-for mod in ('props', 'kingdoms', 'dims', 'sprites'):
+for mod in ('props', 'kingdoms', 'dims', 'sprites', 'creatures'):
     try: __import__(mod).build(A)
     except ImportError: pass
 img = A.image()

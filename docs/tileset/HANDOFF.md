@@ -12,9 +12,10 @@ drives from plain text ("make a snowy kingdom with a river"), including edits to
   `EmojiPickerDialog.kt` l.131-132) -> swap for a neutral beast emoji / tileset sprite.
 - Everything faces FOUR directions (sprites: down, left, right, up).
 - Pull before push, push after every task. Never ask the owner questions; decide.
-- Each chat has < 75k tokens. Do TWO or THREE lettered tasks below per chat (a props part costs ~8k tokens:
+- Each chat has < 75k tokens. Do as many lettered tasks as fit (owner: the old split was too small; keep going after each push
+  until the chat is cut off) - at least THREE per chat (a props part costs ~8k tokens:
   one write, one build, one preview look, one fix), build, look at
-  `docs/tileset/props.png` / `demo.png`, move the task from TODO to DONE here, commit, push, stop.
+  `docs/tileset/props.png` / `demo.png`, move the task from TODO to DONE here, commit, push, then start the next task.
   Do not `cat` whole source files: use `grep -n "^def \|^class "` and `sed -n` on the lines you need.
 
 ## The tile-saving trick (what the owner "forgot")
@@ -105,14 +106,21 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     Review: `python3 tools/tileset/preview.py sprites[:<cat>] 5 16` -> `/tmp/preview_sprites.png`; `docs/tileset/sprites.png` = all.
     Sprites may carry `w`/`h` (in tiles) in atlas.json for big creatures; missing = 1x1; the 4 directions sit side by side.
 
-## TODO (in order, 2-3 lettered tasks per chat; push after each)
+5c. Creatures 1 (`creatures.py`, 90 sprites, cat `creature`, auto-called by build.py): one row in `CREATURES` = `R(archetype, **kw)`.
+    Archetypes: `slime` (8: green..king), `quad` four-legged (29: wolf x3, fox, bear x2, boar, deer, doe, horse x3, cow, bull, sheep,
+    goat, pig, cat x3, dog x2, rat x2, rabbit x2, lion, tiger, panther; kw ear/tail/sz/snout/belly/tusk/stripe/mane/horn/long/spots),
+    `flyer` (12: bat x2, crow, owl, eagle, dove, parrot, bee, wasp_giant, butterfly x2, firefly), `bug` top view rotated (10: spider x3,
+    crab x2, beetle x2, scorpion x2, ant_giant), `snake` (4), `floater` (9: specter, wraith, will_o_wisp, fire_spirit, jellyfish x2,
+    skull_floating/flaming, watcher_eye), `fowl` (6), `frog` (3), `turtle` (3), `fish` (6: .. piranha, eel, shark). Helpers `_four(fn)`
+    (draw d/r/u, left = flip) and `_top(fn)` (draw facing down, rotate). Sheet is now 5214 tiles, 180 sprites.
+
+## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
 ### 2. Props (rest) - `props.py`, one `part_*` each
 - (all props parts done; add more `part_*` only if a later task needs them)
 
-### 5. People + creatures - `sprites.py` (new file, auto-called)
-- 5c. Creatures 1: ~40 (slime, wolf, bear, boar, spider, bat, rat, snake, skeleton, ghost, zombie...).
+### 5. Creatures - `creatures.py`
 - 5d. Creatures 2: ~40 (golem, dragon, wyvern, elemental, treant, kraken, griffin, corrupted
   knight...). No demons.
 
