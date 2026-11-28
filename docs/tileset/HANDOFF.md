@@ -189,6 +189,12 @@ A8. 9d art polish (part 2): `stairs_*` have tapered side stringers (perspective)
       characters / world items / saved map names, max 40 per group) is refreshed by `StoryViewModel.refreshAiUnitsCatalog()`
       before `chatWithAi`, `generateMapWithAi`, `generateMapForLocationWithAi` and appended to the prompt with a REUSE RULE
       (map: place the existing unit as a token with its exact name + emoji; chat: do not duplicate existing units).
+    - 11d. CI run of the 11a-11c push is green (APK builds).
+    - 11h. Beta pass 1 (static scan of `!!`, `first()/last()`, `toInt()`): every `!!` is guarded by a null check on the same
+      state, sizes are parsed with `toIntOrNull`, resize clamps tokens. One real crash fixed: `StoryViewModel` AI world-item
+      edit called `updatedList.first()` on a possibly empty AI answer -> now shows "AI returned no changes".
+      Not a crash but watch: `x!!` on Compose `var` state inside lambdas (WorldListTab 356/559/626, EntitiesTab 333) is safe
+      only because the lambda sits under an `if (x != null)`.
 
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
@@ -204,8 +210,6 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
   login, follow "If meet.jit.si gets annoying" in `docs/VOICE_ROOM.md` (owner steps, free).
 
 ### 11. Owner UX batch (do these FIRST, one lettered task per push)
-- 11d. Check the CI run of the 11a-11c push (`gh`-less: `curl -H "Authorization: Bearer <token>"
-  https://api.github.com/repos/Goodboycat/story-weaver-android/actions/runs?per_page=3`); fix compile errors if red.
 - 11e. Reuse in the import / edit AI paths too: append `existingUnitsBlock(false)` in `parseCharactersWithAi`,
   `parseWorldItemsWithAi` (AiParserService) and pass the catalogue to `AiEditAssistService` (it is an `object`), so
   "import" does not duplicate a unit that already exists (match by name, case-insensitive -> update instead of add).
@@ -213,8 +217,6 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
   copy its emoji / kind / ownerId so the token is really linked, not only named alike (`MapPaintJsonParser` / `MapPaintEngine`).
 - 11g. UI picker "Use existing": in `AiMapArchitectDialog` add chips of existing characters / locations that insert
   `@Name` into the prompt (cheap, no model change).
-- 11h. Beta-test pass 1 (static): grep for `!!`, unguarded `toInt()`, `first()` on possibly empty lists, `LaunchedEffect`
-  without keys in `ui/tabs/*.kt`; fix real crashes only. List findings here before fixing.
 - 11i. Beta-test pass 2: long-name layouts (after 11b rows may grow: check `Row` siblings have `weight(1f)` so buttons
   are not pushed off-screen) in EntitiesTab, WorldListTab, GridMapTab saved-map list.
 - 11j. Beta-test pass 3: Map tab - undo after AI edit, resize with tokens outside the new bounds, eraser on empty cell,

@@ -1327,7 +1327,11 @@ class StoryViewModel(
                     endpointUrl = settings.aiEndpointUrl,
                     apiKeyOverride = settings.aiApiKey,
                 ).onSuccess { updatedList ->
-                    val edited = updatedList.first()
+                    val edited = updatedList.firstOrNull()
+                    if (edited == null) {
+                        _aiState.value = AiUiState.Error("AI returned no changes. Try rephrasing the request.")
+                        return@onSuccess
+                    }
                     _aiState.value = AiUiState.Success("AI edited $category fields.")
                     onApplied(edited)
                 }.onFailure { err ->
