@@ -122,6 +122,13 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     at `+64` (see `render.py` sprites loop and `Atlas.sprite`). Sprite x,y = TOP-LEFT tile. Sheet is now 5930 tiles, 242 sprites.
     Review big ones: `python3 tools/tileset/preview.py sprites:creature_big 3 24`.
 
+6abc. Kotlin core (NOT compiled locally - no gradle/SDK in the chat sandbox; only GitHub Actions can verify, see 9b):
+    `data/TileAtlas.kt` (`TileAtlas.load(context)` suspend / `peek()`, cached; maps `terrains/lines/objects/sprites` + `*Cats` groupings),
+    `GridCell.tile/line/obj` (+ `isEmpty`) and `MapToken.sprite/dir` in `Models.kt` (encode/decode backward compatible; `obj` cell =
+    object's TOP-LEFT tile), `ui/tabs/TileMapRenderer.kt` = port of render.py (`DrawScope.drawTileMap`, `drawTile`, `drawSprite`,
+    `@Composable TilePreview(atlas, kind = tile|line|obj|sprite, name, size)`), wired into the Canvas in `GridMapTab.kt` (legacy
+    colour cells still draw; tokens with `sprite` draw the sprite, big ones anchored bottom-centre, instead of the emoji bubble).
+
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
@@ -129,11 +136,6 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 - (all props parts done; add more `part_*` only if a later task needs them)
 
 ### 6. Kotlin
-- 6a. `data/TileAtlas.kt`: load `tileset/master.png` + `atlas.json` from assets once, cache Bitmap.
-- 6b. `GridCell` gets `tile: String?`, `line: String?`, `obj: String?` (+ encode/decodeGrid in
-  `Models.kt`, backward compatible); `MapToken` gets `sprite` + `dir`.
-- 6c. Port `render.py` into the Canvas draw in `GridMapTab.kt` (~l.930) with
-  `drawImage(srcOffset, srcSize, dstOffset, dstSize, filterQuality = None)`.
 - 6d. Tile palette picker grouped by `cat`; raise the 30x30 grid cap.
 - 6e. Remove ogre/goblin emoji defaults (file list in "Hard rules").
 

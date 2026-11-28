@@ -59,6 +59,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -162,6 +163,9 @@ fun GridMapTab(
     aiConfigActions: com.example.ui.components.AiProviderConfigActions? = null,
 ) {
     val context = LocalContext.current
+    val tileAtlas by produceState(initialValue = com.example.data.TileAtlas.peek(), context) {
+        if (value == null) value = com.example.data.TileAtlas.load(context)
+    }
     val scope = rememberCoroutineScope()
 
     var width by remember(story.id, story.mapWidth) { mutableIntStateOf(story.mapWidth.toInt().coerceIn(4, 30)) }
@@ -887,10 +891,11 @@ fun GridMapTab(
 
                     // Painted Background Color Tiles & Grid Lines
                     Canvas(modifier = Modifier.fillMaxSize()) {
+                        // Legacy flat colours first, then the 16px tileset on top (terrain -> lines -> objects)
                         for (x in 0 until width) {
                             for (y in 0 until height) {
                                 val cell = grid[cellKey(x, y)]
-                                if (cell?.colorHex != null) {
+                                if (cell?.colorHex != null && cell.tile == null) {
                                     val c = try {
                                         Color(android.graphics.Color.parseColor(cell.colorHex))
                                     } catch (_: Exception) {
@@ -902,8 +907,13 @@ fun GridMapTab(
                                         size = Size(baseCellPx, baseCellPx)
                                     )
                                 }
+                            }
+                        }
+                        tileAtlas?.let { drawTileMap(it, grid, width, height, baseCellPx) }
+                        for (x in 0 until width) {
+                            for (y in 0 until height) {
                                 drawRect(
-                                    color = Color.White.copy(alpha = 0.16f),
+                                    color = Color.White.copy(alpha = if (tileAtlas != null && grid[cellKey(x, y)]?.tile != null) 0.05f else 0.16f),
                                     topLeft = Offset(x * baseCellPx, y * baseCellPx),
                                     size = Size(baseCellPx, baseCellPx),
                                     style = Stroke(width = 1f)
@@ -956,6 +966,29 @@ fun GridMapTab(
                     tokens.forEach { token ->
                         if (token.x in 0 until width && token.y in 0 until height) {
                             val isSelected = token.id == selectedTokenId
+                            val atlasNow = tileAtlas
+                            val spr = token.sprite?.let { atlasNow?.sprites?.get(it) }
+                            if (atlasNow != null && spr != null) {
+                                // Tileset sprite: big creatures (w, h > 1) are anchored bottom-centre on the token cell
+                                val ox = token.x - (spr.w - 1) / 2f
+                                val oy = token.y - (spr.h - 1).toFloat()
+                                Canvas(
+                                    modifier = Modifier
+                                        .offset { IntOffset((ox * baseCellPx).roundToInt(), (oy * baseCellPx).roundToInt()) }
+                                        .size(with(density) { (spr.w * baseCellPx).toDp() }, with(density) { (spr.h * baseCellPx).toDp() })
+                                ) {
+                                    if (isSelected) {
+                                        drawRect(
+                                            color = Color.Yellow,
+                                            topLeft = Offset((spr.w - 1) / 2f * baseCellPx, (spr.h - 1) * baseCellPx),
+                                            size = Size(baseCellPx, baseCellPx),
+                                            style = Stroke(width = 3f)
+                                        )
+                                    }
+                                    drawSprite(atlasNow, spr, token.dir, 0f, 0f, baseCellPx)
+                                }
+                                return@forEach
+                            }
                             Surface(
                                 shape = CircleShape,
                                 color = if (isSelected) MaterialTheme.colorScheme.primary

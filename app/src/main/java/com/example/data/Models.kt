@@ -180,7 +180,17 @@ data class GridCell(
     val emoji: String? = null,
     val imageBase64: String? = null,
     val label: String? = null,
-)
+    /** Tileset terrain name (atlas.json "terrains"), autotiled. */
+    val tile: String? = null,
+    /** Tileset line-set name (atlas.json "lines": road, river, fence...). */
+    val line: String? = null,
+    /** Tileset object name (atlas.json "objects"); this cell is the object's TOP-LEFT tile. */
+    val obj: String? = null,
+) {
+    val isEmpty: Boolean
+        get() = colorHex == null && emoji == null && imageBase64 == null && label == null &&
+            tile == null && line == null && obj == null
+}
 
 data class MapToken(
     val id: String,
@@ -191,6 +201,10 @@ data class MapToken(
     val x: Int,
     val y: Int,
     val colorHex: String = "#F59E0B",
+    /** Tileset sprite name (atlas.json "sprites"); null = draw the emoji. */
+    val sprite: String? = null,
+    /** Facing: 0 down, 1 left, 2 right, 3 up. */
+    val dir: Int = 0,
 )
 
 data class InventoryEntry(
@@ -297,14 +311,16 @@ object JsonCodecs {
                 val emoji = sanitizeMapEmoji(cellObj.optNonNullString("emoji"))
                 val imageBase64 = cellObj.optNonNullString("imageBase64")
                 val label = cellObj.optNonNullString("label")
-                if (colorHex != null || emoji != null || imageBase64 != null || label != null) {
-                    result[key] = GridCell(
-                        colorHex = colorHex,
-                        emoji = emoji,
-                        imageBase64 = imageBase64,
-                        label = label,
-                    )
-                }
+                val cell = GridCell(
+                    colorHex = colorHex,
+                    emoji = emoji,
+                    imageBase64 = imageBase64,
+                    label = label,
+                    tile = cellObj.optNonNullString("tile"),
+                    line = cellObj.optNonNullString("line"),
+                    obj = cellObj.optNonNullString("obj"),
+                )
+                if (!cell.isEmpty) result[key] = cell
             }
             result
         } catch (_: Exception) {
@@ -315,8 +331,11 @@ object JsonCodecs {
     fun encodeGrid(grid: Map<String, GridCell>): String {
         val root = JSONObject()
         grid.forEach { (key, cell) ->
-            if (cell.colorHex != null || cell.emoji != null || cell.imageBase64 != null || cell.label != null) {
+            if (!cell.isEmpty) {
                 val obj = JSONObject()
+                cell.tile?.let { obj.put("tile", it) }
+                cell.line?.let { obj.put("line", it) }
+                cell.obj?.let { obj.put("obj", it) }
                 cell.colorHex?.let { obj.put("colorHex", it) }
                 cell.emoji?.let { obj.put("emoji", it) }
                 cell.imageBase64?.let { obj.put("imageBase64", it) }
@@ -342,6 +361,8 @@ object JsonCodecs {
                     x = o.optInt("x", 0),
                     y = o.optInt("y", 0),
                     colorHex = o.optNonNullString("colorHex") ?: "#F59E0B",
+                    sprite = o.optNonNullString("sprite"),
+                    dir = o.optInt("dir", 0).coerceIn(0, 3),
                 )
             }
         } catch (_: Exception) {
@@ -361,6 +382,8 @@ object JsonCodecs {
                 put("x", t.x)
                 put("y", t.y)
                 put("colorHex", t.colorHex)
+                t.sprite?.let { put("sprite", it) }
+                if (t.dir != 0) put("dir", t.dir)
             })
         }
         return arr.toString()
