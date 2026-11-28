@@ -197,6 +197,62 @@ object AiPromptTemplates {
 }
 
 class AiParserService {
+
+    /**
+     * Compact list of the units the campaign already has (characters, NPCs, monsters, locations, powers,
+     * items, notes, saved maps). Set by the ViewModel before each AI call so the AI can reuse them instead
+     * of inventing new ones.
+     */
+    @Volatile
+    var existingUnitsCatalog: String = ""
+
+    private fun existingUnitsBlock(forMap: Boolean): String {
+        val cat = existingUnitsCatalog
+        if (cat.isBlank()) return ""
+        return buildString {
+            appendLine()
+            appendLine("EXISTING CAMPAIGN UNITS (already created by the user in the app tabs):")
+            appendLine(cat)
+            if (forMap) {
+                appendLine("REUSE RULE: when the request mentions or fits one of these units, place THAT unit as a token - copy its exact name into \"label\", its emoji into \"emoji\" and its kind. Use existing location / saved-map names for the place being drawn. Only invent new tokens when the user asks for new ones or nothing existing fits.")
+            } else {
+                appendLine("REUSE RULE: when the user asks to use, place, edit or refer to what they already have, pick from this list and keep the exact name and emoji. Do NOT generate a new unit that duplicates an existing one; only create new units when the user asks for new ones or nothing existing fits.")
+            }
+        }
+    }
+
+    companion object {
+        private const val TAG = "AiParserService"
+        private const val MAX_UNITS_PER_GROUP = 40
+
+        /** Builds the text for [existingUnitsCatalog]. Kept short: one line per group, capped. */
+        fun buildExistingUnitsCatalog(
+            characters: List<Character>,
+            worldItems: List<WorldItem>,
+            savedMapNames: List<String>,
+        ): String = buildString {
+            fun group(title: String, entries: List<String>) {
+                val clean = entries.filter { it.isNotBlank() }
+                if (clean.isEmpty()) return
+                val shown = clean.take(MAX_UNITS_PER_GROUP).joinToString("; ")
+                val more = if (clean.size > MAX_UNITS_PER_GROUP) " (+${clean.size - MAX_UNITS_PER_GROUP} more)" else ""
+                appendLine("- $title: $shown$more")
+            }
+            listOf("player" to "Players", "npc" to "NPCs", "monster" to "Monsters").forEach { (kind, title) ->
+                group(title, characters.filter { it.kind == kind && it.name.isNotBlank() }.map { c ->
+                    val extra = listOf(c.roleTitle, c.locationName.takeIf { it.isNotBlank() }?.let { "at $it" }.orEmpty())
+                        .filter { it.isNotBlank() }.joinToString(", ")
+                    "${c.avatarEmoji} ${c.name}" + if (extra.isNotBlank()) " ($extra)" else ""
+                })
+            }
+            listOf("location" to "Locations", "power" to "Powers", "item" to "Items", "note" to "Notes").forEach { (cat, title) ->
+                group(title, worldItems.filter { it.category == cat && it.title.isNotBlank() }.map { w ->
+                    "${w.iconEmoji} ${w.title}" + if (w.subtitle.isNotBlank()) " (${w.subtitle})" else ""
+                })
+            }
+            group("Saved maps", savedMapNames)
+        }.trim()
+    }
     private val characterSchema = Schema.obj(
         properties = mapOf(
             "items" to Schema.array(
@@ -285,6 +341,7 @@ class AiParserService {
             appendLine("VISUAL CODE OUTPUT: If the user asks you to create an image, emblem, icon, or map diagram in code, output clean self-contained <svg viewBox=\"0 0 512 512\">...</svg> vector markup so the app renders it directly in chat for gallery download.")
             appendLine()
             append(AiPromptTemplates.parserSystemInstructions(contextHint))
+            append(existingUnitsBlock(forMap = false))
         }
 
         return when (provider) {
@@ -958,6 +1015,7 @@ class AiParserService {
                 appendLine()
                 appendLine(mapSnapshot)
             }
+            append(existingUnitsBlock(forMap = true))
             appendLine()
             appendLine("USER MAP REQUEST:")
             appendLine(userPrompt.trim())
@@ -1060,9 +1118,5 @@ class AiParserService {
             endpointUrl = endpointUrl,
             apiKeyOverride = apiKeyOverride,
         )
-    }
-
-    private companion object {
-        const val TAG = "AiParserService"
     }
 }

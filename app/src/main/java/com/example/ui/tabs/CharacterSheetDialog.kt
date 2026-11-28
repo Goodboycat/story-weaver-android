@@ -246,7 +246,7 @@ fun CharacterSheetDialog(
                     title = {
                         Text(
                             text = name.ifBlank { "Character Sheet" },
-                            maxLines = 1,
+                            maxLines = 3,
                             overflow = TextOverflow.Ellipsis
                         )
                     },

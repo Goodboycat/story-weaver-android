@@ -444,10 +444,29 @@ fun GridMapTab(
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Top Map Toolbar
+        val toolbarScroll = rememberScrollState()
+        // Beginner hint: the toolbar scrolls sideways. Hidden for good once the user has scrolled it.
+        var toolbarHintSeen by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+        androidx.compose.runtime.LaunchedEffect(toolbarScroll.value) {
+            if (toolbarScroll.value > 0) toolbarHintSeen = true
+        }
+        if (!toolbarHintSeen && toolbarScroll.maxValue > 0) {
+            Text(
+                text = "\u2194 Swipe the tool bar sideways for more tools  \u00BB",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .clickable { toolbarHintSeen = true }
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .testTag("map_toolbar_scroll_hint")
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
+                .horizontalScroll(toolbarScroll)
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -591,7 +610,7 @@ fun GridMapTab(
                         },
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
@@ -606,7 +625,7 @@ fun GridMapTab(
                                 Text(
                                     activeLinkedLocation.title,
                                     style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 1,
+                                    maxLines = 3,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             },
@@ -1880,7 +1899,7 @@ private fun SavedMapsManagerDialog(
                                             Text(
                                                 text = if (isActive) "${map.name} • Active" else map.name,
                                                 style = MaterialTheme.typography.titleSmall,
-                                                maxLines = 1,
+                                                maxLines = 3,
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                             Text(

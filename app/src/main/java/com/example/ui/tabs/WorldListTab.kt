@@ -363,7 +363,7 @@ fun WorldListTab(
                                     Text(
                                         item.title,
                                         style = MaterialTheme.typography.titleMedium,
-                                        maxLines = 1,
+                                        maxLines = 3,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     if (item.subtitle.isNotBlank()) {
@@ -462,7 +462,7 @@ fun WorldListTab(
                                                 text = "🗺️ ${linkedMap.name} (${linkedMap.width}×${linkedMap.height})" +
                                                     if (isActiveBoard) " • Active" else "",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                maxLines = 1,
+                                                maxLines = 3,
                                                 overflow = TextOverflow.Ellipsis,
                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                             )

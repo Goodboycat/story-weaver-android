@@ -178,6 +178,18 @@ A7. 9d art polish (part 1): `hydra_*` thicker necks + bigger heads with a jaw li
 A8. 9d art polish (part 2): `stairs_*` have tapered side stringers (perspective), `window_stained` rosette drawn on top of thin
     lead lines, `trapdoor_open` shows a bright ladder (rails + 4 rungs) in the dark hole.
 
+11. Owner UX batch (chat of 2026-11-28):
+    - 11a. Map tab: beginner banner above the Pan/Paint/Erase tool bar ("Swipe the tool bar sideways for more tools"),
+      shown only while the bar can scroll; disappears after the first sideways scroll or a tap (`GridMapTab.kt`, tag
+      `map_toolbar_scroll_hint`).
+    - 11b. Unit names are no longer cut to one line with "...": names wrap up to 3 lines in Entities list, World list
+      (+ linked map chip), Map header / linked location / saved-map list, Dashboard campaign title, chat reference
+      picker, equipment slot item, story top bar, character sheet title. Secondary lines (subtitles) stay 1 line.
+    - 11c. AI reuses existing units: `AiParserService.existingUnitsCatalog` (built by `buildExistingUnitsCatalog` from
+      characters / world items / saved map names, max 40 per group) is refreshed by `StoryViewModel.refreshAiUnitsCatalog()`
+      before `chatWithAi`, `generateMapWithAi`, `generateMapForLocationWithAi` and appended to the prompt with a REUSE RULE
+      (map: place the existing unit as a token with its exact name + emoji; chat: do not duplicate existing units).
+
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
@@ -190,6 +202,27 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 ### 10. Voice (after the tileset, or when the owner asks)
 - 10b. Device-test the native room (join from two phones, `...` -> Share screen). If `meet.jit.si` demands a moderator
   login, follow "If meet.jit.si gets annoying" in `docs/VOICE_ROOM.md` (owner steps, free).
+
+### 11. Owner UX batch (do these FIRST, one lettered task per push)
+- 11d. Check the CI run of the 11a-11c push (`gh`-less: `curl -H "Authorization: Bearer <token>"
+  https://api.github.com/repos/Goodboycat/story-weaver-android/actions/runs?per_page=3`); fix compile errors if red.
+- 11e. Reuse in the import / edit AI paths too: append `existingUnitsBlock(false)` in `parseCharactersWithAi`,
+  `parseWorldItemsWithAi` (AiParserService) and pass the catalogue to `AiEditAssistService` (it is an `object`), so
+  "import" does not duplicate a unit that already exists (match by name, case-insensitive -> update instead of add).
+- 11f. Map AI tokens: after the AI answers, snap each token `label` to an existing Character (case-insensitive name) and
+  copy its emoji / kind / ownerId so the token is really linked, not only named alike (`MapPaintJsonParser` / `MapPaintEngine`).
+- 11g. UI picker "Use existing": in `AiMapArchitectDialog` add chips of existing characters / locations that insert
+  `@Name` into the prompt (cheap, no model change).
+- 11h. Beta-test pass 1 (static): grep for `!!`, unguarded `toInt()`, `first()` on possibly empty lists, `LaunchedEffect`
+  without keys in `ui/tabs/*.kt`; fix real crashes only. List findings here before fixing.
+- 11i. Beta-test pass 2: long-name layouts (after 11b rows may grow: check `Row` siblings have `weight(1f)` so buttons
+  are not pushed off-screen) in EntitiesTab, WorldListTab, GridMapTab saved-map list.
+- 11j. Beta-test pass 3: Map tab - undo after AI edit, resize with tokens outside the new bounds, eraser on empty cell,
+  saved map load while painting. Read the code paths, fix bugs.
+- 11k. Move the hint string + new texts to `Localization.kt`.
+- Worker note: the owner asked for a Qwen worker through the Genspark API. The sandbox key is a tool key (`gsk`), the
+  Model API answers "accepts gmk API keys; create one in the developer portal" - no text-LLM worker is reachable. If the
+  owner supplies a `gmk` key, use `$GSK_BASE_URL/api/v1/...` chat completions with the newest Qwen model for the grep/fix passes.
 
 ### 9. Finish
 - 9c. Device-test the Map AI (needs the owner's phone; nothing more to code unless a test fails). If a keyword is missing

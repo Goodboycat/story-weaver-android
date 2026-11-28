@@ -178,6 +178,14 @@ class StoryViewModel(
     private var mapSyncJob: Job? = null
     private var lastSyncedMemberSignature: String = ""
 
+    /** Tells the AI which units already exist so it can reuse them instead of generating new ones. */
+    private fun refreshAiUnitsCatalog() {
+        val chars = (charactersState.value as? UiState.Success)?.data.orEmpty()
+        val items = (worldItemsState.value as? UiState.Success)?.data.orEmpty()
+        val maps = (savedMapsState.value as? UiState.Success)?.data.orEmpty().map { it.name }
+        aiParser.existingUnitsCatalog = AiParserService.buildExistingUnitsCatalog(chars, items, maps)
+    }
+
     init {
         viewModelScope.launch {
             preferencesRepository.setActiveUserId(currentUserId)
@@ -338,6 +346,7 @@ class StoryViewModel(
                     )
                 }
             } else {
+                refreshAiUnitsCatalog()
                 aiParser.chatWithAi(
                     history = updatedHistory,
                     story = story,
@@ -697,6 +706,7 @@ class StoryViewModel(
         activateOnBoard: Boolean,
     ): String? {
         val settings = userSettings.value
+        refreshAiUnitsCatalog()
         val result = aiParser.generateMapForLocationWithAi(
             location = locationItem.copy(id = locationId),
             story = story,
@@ -1440,6 +1450,7 @@ class StoryViewModel(
         val settings = userSettings.value
         _aiMapState.value = AiMapUiState.Loading
         viewModelScope.launch {
+            refreshAiUnitsCatalog()
             aiParser.generateMapWithAi(
                 userPrompt = clean,
                 story = story,

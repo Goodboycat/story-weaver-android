@@ -421,7 +421,7 @@ fun ReferencePickerDialog(
                                             Text(
                                                 text = entry.title,
                                                 style = MaterialTheme.typography.titleSmall,
-                                                maxLines = 1,
+                                                maxLines = 3,
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                             Text(

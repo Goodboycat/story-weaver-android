@@ -253,7 +253,7 @@ fun StoryViewScreen(
                         Text(
                             text = story?.title ?: "Campaign",
                             style = MaterialTheme.typography.titleLarge,
-                            maxLines = 1,
+                            maxLines = 3,
                             overflow = TextOverflow.Ellipsis
                         )
                         if (story != null) {

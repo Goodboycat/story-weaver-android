@@ -354,7 +354,7 @@ fun EntitiesTab(
                                     Text(
                                         char.name,
                                         style = MaterialTheme.typography.titleMedium,
-                                        maxLines = 1,
+                                        maxLines = 3,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f, fill = false)
                                     )

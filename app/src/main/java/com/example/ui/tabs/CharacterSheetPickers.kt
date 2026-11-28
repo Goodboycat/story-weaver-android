@@ -385,7 +385,7 @@ fun EquipmentSilhouetteGrid(
                                 Text(
                                     text = equipped?.name?.ifBlank { slot.label } ?: "Empty",
                                     style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1,
+                                    maxLines = 3,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }

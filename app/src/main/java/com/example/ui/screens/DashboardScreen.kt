@@ -399,7 +399,7 @@ private fun CampaignCard(
                     Text(
                         text = story.title,
                         style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
