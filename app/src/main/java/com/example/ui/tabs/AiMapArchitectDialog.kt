@@ -105,9 +105,11 @@ fun AiMapArchitectDialog(
     var prompt by remember { mutableStateOf("") }
     var replaceEntireMap by remember { mutableStateOf(!hasExistingTiles) }
     var useCustomSize by remember { mutableStateOf(false) }
-    var sizePresetLabel by remember { mutableStateOf("Keep") }
-    var draftW by remember { mutableIntStateOf(currentWidth) }
-    var draftH by remember { mutableIntStateOf(currentHeight) }
+    var sizePresetLabel by remember { mutableStateOf(if (!hasExistingTiles) "Auto" else "Keep") }
+    var draftW by remember { mutableIntStateOf(currentWidth.coerceAtLeast(1)) }
+    var draftH by remember { mutableIntStateOf(currentHeight.coerceAtLeast(1)) }
+    var draftWText by remember(draftW) { mutableStateOf(draftW.toString()) }
+    var draftHText by remember(draftH) { mutableStateOf(draftH.toString()) }
     var showModelConfig by remember { mutableStateOf(false) }
 
     val isLoading = aiMapState is AiMapUiState.Loading
@@ -200,7 +202,7 @@ fun AiMapArchitectDialog(
                 // Target Grid Size selector
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = "Grid Size",
+                        text = "Grid Size (Unrestricted)",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -209,22 +211,23 @@ fun AiMapArchitectDialog(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         val sizeOptions = listOf(
-                            "Keep (${currentWidth}x$currentHeight)" to (null to null),
-                            "12x12" to (12 to 12),
-                            "16x14" to (16 to 14),
-                            "20x16" to (20 to 16),
-                            "24x18" to (24 to 18),
+                            "Auto (AI Decides)" to ("Auto" to null),
+                            "Keep (${currentWidth}x$currentHeight)" to ("Keep" to (currentWidth to currentHeight)),
+                            "16x14" to ("16x14" to (16 to 14)),
+                            "28x22" to ("28x22" to (28 to 22)),
+                            "48x36" to ("48x36" to (48 to 36)),
                         )
-                        sizeOptions.forEach { (label, dims) ->
-                            val shortKey = if (dims.first == null) "Keep" else label
+                        sizeOptions.forEach { (label, keyDims) ->
+                            val shortKey = keyDims.first
+                            val dims = keyDims.second
                             FilterChip(
                                 selected = !useCustomSize && sizePresetLabel == shortKey,
                                 onClick = {
                                     useCustomSize = false
                                     sizePresetLabel = shortKey
-                                    if (dims.first != null && dims.second != null) {
-                                        draftW = dims.first!!
-                                        draftH = dims.second!!
+                                    if (dims != null) {
+                                        draftW = dims.first
+                                        draftH = dims.second
                                     } else {
                                         draftW = currentWidth
                                         draftH = currentHeight
@@ -240,18 +243,31 @@ fun AiMapArchitectDialog(
                         )
                     }
                     AnimatedVisibility(visible = useCustomSize) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("Width: $draftW", style = MaterialTheme.typography.labelSmall)
-                            Slider(
-                                value = draftW.toFloat(),
-                                onValueChange = { draftW = it.roundToInt().coerceIn(4, com.example.data.MAP_MAX_SIZE) },
-                                valueRange = 4f..com.example.data.MAP_MAX_SIZE.toFloat(),
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = draftWText,
+                                onValueChange = { raw ->
+                                    val digits = raw.filter { it.isDigit() }
+                                    draftWText = digits
+                                    digits.toIntOrNull()?.takeIf { it >= 1 }?.let { draftW = it }
+                                },
+                                label = { Text("Width") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f).testTag("ai_map_custom_width_input")
                             )
-                            Text("Height: $draftH", style = MaterialTheme.typography.labelSmall)
-                            Slider(
-                                value = draftH.toFloat(),
-                                onValueChange = { draftH = it.roundToInt().coerceIn(4, com.example.data.MAP_MAX_SIZE) },
-                                valueRange = 4f..com.example.data.MAP_MAX_SIZE.toFloat(),
+                            OutlinedTextField(
+                                value = draftHText,
+                                onValueChange = { raw ->
+                                    val digits = raw.filter { it.isDigit() }
+                                    draftHText = digits
+                                    digits.toIntOrNull()?.takeIf { it >= 1 }?.let { draftH = it }
+                                },
+                                label = { Text("Height") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f).testTag("ai_map_custom_height_input")
                             )
                         }
                     }
@@ -338,8 +354,8 @@ fun AiMapArchitectDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val targetW = if (useCustomSize || sizePresetLabel != "Keep") draftW else null
-                    val targetH = if (useCustomSize || sizePresetLabel != "Keep") draftH else null
+                    val targetW = if (!useCustomSize && sizePresetLabel == "Auto") null else draftW.coerceAtLeast(1)
+                    val targetH = if (!useCustomSize && sizePresetLabel == "Auto") null else draftH.coerceAtLeast(1)
                     onGenerate(prompt.trim(), replaceEntireMap, targetW, targetH)
                 },
                 enabled = prompt.isNotBlank() && !isLoading,

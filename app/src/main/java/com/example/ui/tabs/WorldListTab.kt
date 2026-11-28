@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.AlertDialog
@@ -42,6 +43,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -72,6 +75,7 @@ import com.example.ai.AiPromptTemplates
 import com.example.ai.AiProvider
 import com.example.ai.EmojiHelper
 import com.example.data.JsonCodecs
+import com.example.data.SavedMap
 import com.example.data.SearchFilterUtil
 import com.example.data.Story
 import com.example.data.UserSettings
@@ -113,6 +117,12 @@ fun WorldListTab(
     onResetAiState: () -> Unit,
     onShareToChat: ((WorldItem) -> Unit)? = null,
     aiConfigActions: com.example.ui.components.AiProviderConfigActions? = null,
+    savedMaps: List<SavedMap> = emptyList(),
+    activeMapId: String = "",
+    onSaveLocationAndGenerateMap: ((WorldItem) -> Unit)? = null,
+    onOpenSavedMap: ((SavedMap) -> Unit)? = null,
+    onGenerateLocationMap: ((WorldItem) -> Unit)? = null,
+    onLinkLocationToMap: ((SavedMap, WorldItem?) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -425,6 +435,66 @@ fun WorldListTab(
                                     }
                                 }
                             }
+                            if (category == "location") {
+                                val linkedMap = remember(savedMaps, item.id, item.linkedMapId) {
+                                    savedMaps.firstOrNull {
+                                        (item.linkedMapId.isNotBlank() && it.id == item.linkedMapId) ||
+                                            it.linkedLocationId == item.id
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (linkedMap != null) {
+                                        val isActiveBoard = linkedMap.id == activeMapId
+                                        Surface(
+                                            color = if (isActiveBoard) {
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                                            } else {
+                                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                                            },
+                                            shape = MaterialTheme.shapes.small,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(
+                                                text = "🗺️ ${linkedMap.name} (${linkedMap.width}×${linkedMap.height})" +
+                                                    if (isActiveBoard) " • Active" else "",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                        if (onOpenSavedMap != null) {
+                                            TextButton(
+                                                onClick = { onOpenSavedMap(linkedMap) },
+                                                modifier = Modifier.testTag("open_location_map_${item.id}")
+                                            ) {
+                                                Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("Open Map", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                    } else if (isGmMode && onGenerateLocationMap != null) {
+                                        Text(
+                                            text = "No synced map yet",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        TextButton(
+                                            onClick = { onGenerateLocationMap(item) },
+                                            modifier = Modifier.testTag("generate_location_map_${item.id}")
+                                        ) {
+                                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("AI Map", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -443,6 +513,16 @@ fun WorldListTab(
         var showEmojiPicker by remember(current) { mutableStateOf(false) }
         var showImageGen by remember(current) { mutableStateOf(false) }
         var showSingleAiEdit by remember(current) { mutableStateOf(false) }
+        var autoGenerateMapOnSave by remember(current) { mutableStateOf(false) }
+        var showLinkMapMenu by remember(current) { mutableStateOf(false) }
+        val linkedMap = remember(savedMaps, current.id, current.linkedMapId) {
+            if (category == "location") {
+                savedMaps.firstOrNull {
+                    (current.linkedMapId.isNotBlank() && it.id == current.linkedMapId) ||
+                        (current.id.isNotBlank() && it.linkedLocationId == current.id)
+                }
+            } else null
+        }
 
         val worldImagePicker = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.PickVisualMedia()
@@ -583,22 +663,134 @@ fun WorldListTab(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (category == "location") {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Synced Map",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                if (linkedMap != null) {
+                                    Text(
+                                        text = "🗺️ ${linkedMap.name} (${linkedMap.width}×${linkedMap.height})",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        if (onOpenSavedMap != null) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    onOpenSavedMap(linkedMap)
+                                                    editingItem = null
+                                                }
+                                            ) {
+                                                Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("Open Map", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                        if (onGenerateLocationMap != null && current.id.isNotBlank()) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    onGenerateLocationMap(current)
+                                                    editingItem = null
+                                                }
+                                            ) {
+                                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("Regenerate AI Map", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                    }
+                                } else if (current.id.isNotBlank()) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        if (onGenerateLocationMap != null) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    onGenerateLocationMap(current)
+                                                    editingItem = null
+                                                }
+                                            ) {
+                                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("AI Generate Map", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                        if (savedMaps.isNotEmpty() && onLinkLocationToMap != null) {
+                                            Box {
+                                                OutlinedButton(onClick = { showLinkMapMenu = true }) {
+                                                    Text("Link Existing Map", style = MaterialTheme.typography.labelSmall)
+                                                }
+                                                DropdownMenu(
+                                                    expanded = showLinkMapMenu,
+                                                    onDismissRequest = { showLinkMapMenu = false }
+                                                ) {
+                                                    savedMaps.forEach { map ->
+                                                        DropdownMenuItem(
+                                                            text = { Text("${map.name} (${map.width}×${map.height})") },
+                                                            onClick = {
+                                                                onLinkLocationToMap(map, current)
+                                                                showLinkMapMenu = false
+                                                                editingItem = null
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth().clickable {
+                                            autoGenerateMapOnSave = !autoGenerateMapOnSave
+                                        }
+                                    ) {
+                                        Checkbox(
+                                            checked = autoGenerateMapOnSave,
+                                            onCheckedChange = { autoGenerateMapOnSave = it }
+                                        )
+                                        Text(
+                                            text = "Auto-generate synced AI map on save",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         val tags = tagsText.split(",").map { it.trim() }.filter { it.isNotBlank() }
-                        onSaveItem(
-                            current.copy(
-                                title = title.trim().ifBlank { "Untitled" },
-                                subtitle = subtitle.trim(),
-                                description = description.trim(),
-                                iconEmoji = emoji,
-                                imageUrl = imageUrl,
-                                tagsJson = JsonCodecs.encodeStringList(tags),
-                            )
+                        val built = current.copy(
+                            title = title.trim().ifBlank { "Untitled" },
+                            subtitle = subtitle.trim(),
+                            description = description.trim(),
+                            iconEmoji = emoji,
+                            imageUrl = imageUrl,
+                            tagsJson = JsonCodecs.encodeStringList(tags),
                         )
+                        if (category == "location" && autoGenerateMapOnSave && linkedMap == null && onSaveLocationAndGenerateMap != null) {
+                            onSaveLocationAndGenerateMap(built)
+                        } else {
+                            onSaveItem(built)
+                        }
                         editingItem = null
                     },
                     enabled = title.isNotBlank(),
@@ -686,6 +878,9 @@ fun WorldListTab(
                         description = updated.description
                         emoji = updated.iconEmoji.ifBlank { defaultEmoji }
                         tagsText = JsonCodecs.decodeStringList(updated.tagsJson).joinToString(", ")
+                        if (category == "location" && !useRegex && linkedMap == null) {
+                            autoGenerateMapOnSave = true
+                        }
                         showSingleAiEdit = false
                     }
                 },

@@ -45,13 +45,37 @@ private fun tileHash(x: Int, y: Int): Int {
 // quadrant x, y (0/1), neighbour dx, dy
 private val QUADS = arrayOf(intArrayOf(0, 0, -1, -1), intArrayOf(1, 0, 1, -1), intArrayOf(0, 1, -1, 1), intArrayOf(1, 1, 1, 1))
 
-fun DrawScope.drawTileMap(atlas: TileAtlas, grid: Map<String, GridCell>, width: Int, height: Int, cellPx: Float) {
+fun DrawScope.drawTileMap(
+    atlas: TileAtlas,
+    grid: Map<String, GridCell>,
+    width: Int,
+    height: Int,
+    cellPx: Float,
+    visMinX: Int = 0,
+    visMaxX: Int = width - 1,
+    visMinY: Int = 0,
+    visMaxY: Int = height - 1,
+) {
     if (width <= 0 || height <= 0) return
+    val minX = visMinX.coerceIn(0, width - 1)
+    val maxX = visMaxX.coerceIn(minX, width - 1)
+    val minY = visMinY.coerceIn(0, height - 1)
+    val maxY = visMaxY.coerceIn(minY, height - 1)
+
+    val padMinX = (minX - 1).coerceAtLeast(0)
+    val padMaxX = (maxX + 1).coerceAtMost(width - 1)
+    val padMinY = (minY - 1).coerceAtLeast(0)
+    val padMaxY = (maxY + 1).coerceAtMost(height - 1)
+    val winW = padMaxX - padMinX + 1
+    val winH = padMaxY - padMinY + 1
+
     val half = atlas.tile / 2
-    // Resolve names once per frame into flat arrays.
-    val terr = arrayOfNulls<TileAtlas.Terrain>(width * height)
-    val line = arrayOfNulls<String>(width * height)
+    val terr = arrayOfNulls<TileAtlas.Terrain>(winW * winH)
+    val line = arrayOfNulls<String>(winW * winH)
     val objs = ArrayList<Triple<TileAtlas.Obj, Int, Int>>()
+    val objPadMinX = (minX - 6).coerceAtLeast(0)
+    val objPadMinY = (minY - 6).coerceAtLeast(0)
+
     grid.forEach { (key, cell) ->
         if (cell.tile == null && cell.line == null && cell.obj == null) return@forEach
         val c = key.indexOf(',')
@@ -59,15 +83,24 @@ fun DrawScope.drawTileMap(atlas: TileAtlas, grid: Map<String, GridCell>, width: 
         val x = key.substring(0, c).toIntOrNull() ?: return@forEach
         val y = key.substring(c + 1).toIntOrNull() ?: return@forEach
         if (x !in 0 until width || y !in 0 until height) return@forEach
-        cell.tile?.let { terr[y * width + x] = atlas.terrains[it] }
-        cell.line?.let { if (atlas.lines.containsKey(it)) line[y * width + x] = it }
-        cell.obj?.let { n -> atlas.objects[n]?.let { objs.add(Triple(it, x, y)) } }
+        if (x in padMinX..padMaxX && y in padMinY..padMaxY) {
+            val idx = (y - padMinY) * winW + (x - padMinX)
+            cell.tile?.let { terr[idx] = atlas.terrains[it] }
+            cell.line?.let { if (atlas.lines.containsKey(it)) line[idx] = it }
+        }
+        if (x in objPadMinX..maxX && y in objPadMinY..maxY) {
+            cell.obj?.let { n -> atlas.objects[n]?.let { objs.add(Triple(it, x, y)) } }
+        }
     }
-    fun tn(x: Int, y: Int) = terr[y.coerceIn(0, height - 1) * width + x.coerceIn(0, width - 1)]
+    fun tn(x: Int, y: Int): TileAtlas.Terrain? {
+        val cx = x.coerceIn(padMinX, padMaxX) - padMinX
+        val cy = y.coerceIn(padMinY, padMaxY) - padMinY
+        return terr[cy * winW + cx]
+    }
 
-    for (y in 0 until height) {
-        for (x in 0 until width) {
-            val t = terr[y * width + x] ?: continue
+    for (y in minY..maxY) {
+        for (x in minX..maxX) {
+            val t = terr[(y - padMinY) * winW + (x - padMinX)] ?: continue
             for (q in QUADS) {
                 val nh = tn(x + q[2], y); val nv = tn(x, y + q[3]); val nd = tn(x + q[2], y + q[3])
                 val ch = nh != null && nh.p >= t.p
@@ -81,7 +114,6 @@ fun DrawScope.drawTileMap(atlas: TileAtlas, grid: Map<String, GridCell>, width: 
                     src = t.i + 4 + tileHash(x, y) % t.n
                 } else {
                     src = t.i + (if (ch && cv) 3 else if (ch) 1 else if (cv) 2 else 0)
-                    // highest lower neighbour shows through the transparent rim
                     var under: TileAtlas.Terrain? = null
                     if (nh != null && !ch) under = nh
                     if (nv != null && !cv && (under == null || nv.p > under.p)) under = nv
@@ -93,10 +125,12 @@ fun DrawScope.drawTileMap(atlas: TileAtlas, grid: Map<String, GridCell>, width: 
         }
     }
 
-    for (y in 0 until height) {
-        for (x in 0 until width) {
-            val name = line[y * width + x] ?: continue
-            fun same(nx: Int, ny: Int) = nx in 0 until width && ny in 0 until height && line[ny * width + nx] == name
+    for (y in minY..maxY) {
+        for (x in minX..maxX) {
+            val name = line[(y - padMinY) * winW + (x - padMinX)] ?: continue
+            fun same(nx: Int, ny: Int) =
+                nx in padMinX..padMaxX && ny in padMinY..padMaxY &&
+                    line[(ny - padMinY) * winW + (nx - padMinX)] == name
             var bits = 0
             if (same(x, y - 1)) bits = bits or 1
             if (same(x + 1, y)) bits = bits or 2
@@ -108,6 +142,7 @@ fun DrawScope.drawTileMap(atlas: TileAtlas, grid: Map<String, GridCell>, width: 
 
     objs.sortBy { it.third + it.first.h }
     for ((o, x, y) in objs) {
+        if (x + o.w < minX || y + o.h < minY) continue
         for (j in 0 until o.h) for (i in 0 until o.w) {
             drawTile(atlas, o.i + j * atlas.cols + i, (x + i).toFloat(), (y + j).toFloat(), cellPx)
         }

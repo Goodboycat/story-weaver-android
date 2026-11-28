@@ -329,8 +329,8 @@ object MapPaintEngine {
         ownerId: String,
         scriptJson: String = "",
     ): MapPaintOutcome {
-        val targetWidth = (script.width ?: currentWidth).coerceIn(4, com.example.data.MAP_MAX_SIZE)
-        val targetHeight = (script.height ?: currentHeight).coerceIn(4, com.example.data.MAP_MAX_SIZE)
+        val targetWidth = (script.width ?: currentWidth).coerceAtLeast(1)
+        val targetHeight = (script.height ?: currentHeight).coerceAtLeast(1)
 
         val baseGrid: Map<String, GridCell> = if (script.clearFirst) {
             mutableMapOf()
@@ -725,7 +725,11 @@ object MapPaintJsonParser {
         val clearTokens = obj.optBoolean("clearTokens", false)
         val summary = obj.optCleanString("summary") ?: "AI painted map"
 
-        MapMacroOps.begin(if (clearFirst) null else baseGrid)
+        MapMacroOps.begin(
+            grid = if (clearFirst) null else baseGrid,
+            maxWidth = width ?: 2000,
+            maxHeight = height ?: 2000,
+        )
         val ops = mutableListOf<MapPaintOp>()
         val opsArr = obj.optJSONArray("operations")
             ?: obj.optJSONArray("ops")

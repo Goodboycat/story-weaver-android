@@ -20,11 +20,13 @@ import com.example.data.DiceRoll
 import com.example.data.EquipmentSlotItem
 import com.example.data.GridCell
 import com.example.data.JsonCodecs
+import com.example.data.MAP_DEFAULT_SIZE
 import com.example.data.MapPaintOutcome
 import com.example.data.MapToken
 import com.example.data.PreferencesRepository
 import com.example.data.QuickMapAsset
 import com.example.data.QuickMapBlock
+import com.example.data.SavedMap
 import com.example.data.Story
 import com.example.data.StoryRepository
 import com.example.data.UserSettings
@@ -98,6 +100,18 @@ class StoryViewModel(
             if (firestoreError == null && error is CancellationException) throw error
             Log.w(TAG, "Error observing world items", firestoreError ?: error)
             emit(UiState.Error(unwrapFirestoreErrorMessage(error, "Failed to load world items.")))
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UiState.Loading)
+
+    val savedMapsState: StateFlow<UiState<List<SavedMap>>> = repository.observeSavedMaps(storyId, currentUserId)
+        .map<List<SavedMap>, UiState<List<SavedMap>>> { UiState.Success(it) }
+        .catch { error ->
+            val firestoreError = generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            Log.w(TAG, "Error observing saved maps", firestoreError ?: error)
+            emit(UiState.Error(unwrapFirestoreErrorMessage(error, "Failed to load saved maps.")))
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), UiState.Loading)
 
@@ -444,9 +458,26 @@ class StoryViewModel(
         }
     }
 
-    fun saveWorldItem(story: Story, item: WorldItem, onSaved: () -> Unit = {}) {
+    fun saveWorldItem(
+        story: Story,
+        item: WorldItem,
+        generateLocationMap: Boolean = false,
+        onSaved: () -> Unit = {},
+    ) {
         viewModelScope.launch {
-            repository.saveWorldItem(story, item).onSuccess {
+            repository.saveWorldItem(story, item).onSuccess { savedId ->
+                if (generateLocationMap && item.category == "location" && story.gmUserId == currentUserId) {
+                    val boardBlank = story.activeMapId.isBlank() && story.mapGridJson == "{}"
+                    val generated = createAiMapForLocationSuspend(
+                        story = story,
+                        locationItem = item,
+                        locationId = savedId,
+                        activateIfBoardBlank = boardBlank,
+                    )
+                    if (generated) {
+                        _toastMessage.value = "Saved ${item.title} + generated synced map"
+                    }
+                }
                 onSaved()
             }.onFailure { err ->
                 _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to save entry.")
@@ -486,14 +517,212 @@ class StoryViewModel(
             val tokensJson = JsonCodecs.encodeTokens(tokens)
             val isGm = story.gmUserId == currentUserId && !_viewAsPlayer.value
             val result = if (isGm) {
-                repository.updateStoryMap(story.id, width, height, gridJson, tokensJson, backgroundUrl)
+                repository.updateStoryMap(
+                    storyId = story.id,
+                    width = width,
+                    height = height,
+                    gridJson = gridJson,
+                    tokensJson = tokensJson,
+                    backgroundUrl = backgroundUrl,
+                    activeMapId = story.activeMapId,
+                )
             } else {
-                repository.updateStoryTokens(story.id, tokensJson)
+                repository.updateStoryTokens(
+                    storyId = story.id,
+                    tokensJson = tokensJson,
+                    activeMapId = story.activeMapId,
+                )
             }
             result.onFailure { err ->
                 _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to sync map.")
             }
         }
+    }
+
+    fun saveCurrentMapToLibrary(
+        story: Story,
+        mapName: String,
+        width: Int,
+        height: Int,
+        grid: Map<String, GridCell>,
+        tokens: List<MapToken>,
+        backgroundUrl: String?,
+        linkedLocation: WorldItem?,
+        existingMapId: String = "",
+        activateOnBoard: Boolean = true,
+        onSaved: (String) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            val savedMap = SavedMap(
+                id = existingMapId,
+                storyId = story.id,
+                gmUserId = story.gmUserId,
+                ownerId = currentUserId,
+                memberUids = story.memberUids,
+                name = mapName.trim().ifBlank { linkedLocation?.title?.ifBlank { "Untitled Map" } ?: "Untitled Map" },
+                linkedLocationId = linkedLocation?.id.orEmpty(),
+                linkedLocationTitle = linkedLocation?.title.orEmpty(),
+                width = width.toLong(),
+                height = height.toLong(),
+                gridJson = JsonCodecs.encodeGrid(grid),
+                tokensJson = JsonCodecs.encodeTokens(tokens),
+                backgroundUrl = backgroundUrl,
+            )
+            repository.saveSavedMap(story, savedMap, activateOnBoard = activateOnBoard)
+                .onSuccess { mapId ->
+                    val suffix = linkedLocation?.title?.takeIf { it.isNotBlank() }?.let { " (synced to $it)" }.orEmpty()
+                    _toastMessage.value = "Saved map \"${savedMap.name}\"$suffix"
+                    onSaved(mapId)
+                }
+                .onFailure { err ->
+                    _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to save map.")
+                }
+        }
+    }
+
+    fun loadSavedMap(story: Story, savedMap: SavedMap, onLoaded: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.loadSavedMapAsActive(story, savedMap)
+                .onSuccess {
+                    _toastMessage.value = "Loaded map \"${savedMap.name}\""
+                    onLoaded()
+                }
+                .onFailure { err ->
+                    _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to load map.")
+                }
+        }
+    }
+
+    fun startBlankMap(story: Story, width: Int = MAP_DEFAULT_SIZE, height: Int = MAP_DEFAULT_SIZE) {
+        viewModelScope.launch {
+            repository.startBlankActiveMap(story, width, height)
+                .onSuccess {
+                    _toastMessage.value = "Started blank ${width}x${height} map"
+                }
+                .onFailure { err ->
+                    _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to clear board.")
+                }
+        }
+    }
+
+    fun renameSavedMap(story: Story, savedMap: SavedMap, newName: String) {
+        val clean = newName.trim()
+        if (clean.isBlank()) return
+        viewModelScope.launch {
+            repository.saveSavedMap(
+                story = story,
+                savedMap = savedMap.copy(name = clean),
+                activateOnBoard = story.activeMapId == savedMap.id,
+            ).onSuccess {
+                _toastMessage.value = "Renamed map to \"$clean\""
+            }.onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to rename map.")
+            }
+        }
+    }
+
+    fun linkSavedMapToLocation(story: Story, savedMap: SavedMap, locationItem: WorldItem?) {
+        viewModelScope.launch {
+            repository.linkSavedMapToLocation(
+                story = story,
+                mapId = savedMap.id,
+                locationItem = locationItem,
+                previousLocationId = savedMap.linkedLocationId,
+            ).onSuccess {
+                _toastMessage.value = if (locationItem != null) {
+                    "Synced \"${savedMap.name}\" with ${locationItem.title}"
+                } else {
+                    "Unlinked location from \"${savedMap.name}\""
+                }
+            }.onFailure { err ->
+                _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to link location.")
+            }
+        }
+    }
+
+    fun deleteSavedMap(story: Story, savedMap: SavedMap) {
+        viewModelScope.launch {
+            repository.deleteSavedMap(story, savedMap.id)
+                .onSuccess {
+                    _toastMessage.value = "Deleted map \"${savedMap.name}\""
+                }
+                .onFailure { err ->
+                    _toastMessage.value = unwrapFirestoreErrorMessage(err, "Failed to delete map.")
+                }
+        }
+    }
+
+    fun generateAndLinkMapForLocation(
+        story: Story,
+        location: WorldItem,
+        activateOnBoard: Boolean = false,
+        onComplete: (String?) -> Unit = {},
+    ) {
+        if (location.id.isBlank() || _aiMapState.value is AiMapUiState.Loading) return
+        _aiMapState.value = AiMapUiState.Loading
+        viewModelScope.launch {
+            val savedId = createAiMapForLocationAndReturnId(
+                story = story,
+                locationItem = location,
+                locationId = location.id,
+                activateOnBoard = activateOnBoard,
+            )
+            _aiMapState.value = AiMapUiState.Idle
+            if (savedId != null) {
+                _toastMessage.value = "AI generated map for ${location.title}"
+                onComplete(savedId)
+            } else {
+                _toastMessage.value = "Failed to generate map for ${location.title}"
+                onComplete(null)
+            }
+        }
+    }
+
+    private suspend fun createAiMapForLocationSuspend(
+        story: Story,
+        locationItem: WorldItem,
+        locationId: String,
+        activateIfBoardBlank: Boolean,
+    ): Boolean = createAiMapForLocationAndReturnId(
+        story = story,
+        locationItem = locationItem,
+        locationId = locationId,
+        activateOnBoard = activateIfBoardBlank,
+    ) != null
+
+    private suspend fun createAiMapForLocationAndReturnId(
+        story: Story,
+        locationItem: WorldItem,
+        locationId: String,
+        activateOnBoard: Boolean,
+    ): String? {
+        val settings = userSettings.value
+        val result = aiParser.generateMapForLocationWithAi(
+            location = locationItem.copy(id = locationId),
+            story = story,
+            ownerId = currentUserId,
+            provider = settings.aiProvider,
+            modelName = settings.aiModel,
+            endpointUrl = settings.aiEndpointUrl,
+            apiKeyOverride = settings.aiApiKey,
+        )
+        val outcome = result.getOrNull() ?: return null
+        val savedMap = SavedMap(
+            id = locationItem.linkedMapId,
+            storyId = story.id,
+            gmUserId = story.gmUserId,
+            ownerId = currentUserId,
+            memberUids = story.memberUids,
+            name = locationItem.title.trim().ifBlank { "Location Map" }.take(140),
+            linkedLocationId = locationId,
+            linkedLocationTitle = locationItem.title.trim().take(140),
+            width = outcome.width.toLong(),
+            height = outcome.height.toLong(),
+            gridJson = JsonCodecs.encodeGrid(outcome.grid),
+            tokensJson = JsonCodecs.encodeTokens(outcome.tokens),
+            backgroundUrl = null,
+        )
+        return repository.saveSavedMap(story, savedMap, activateOnBoard = activateOnBoard).getOrNull()
     }
 
     fun addQuickMapAsset(asset: QuickMapAsset) {
@@ -812,7 +1041,13 @@ class StoryViewModel(
                     apiKeyOverride = settings.aiApiKey,
                 )
                 res.onSuccess { bundle ->
-                    val summary = persistCharacterBundle(story, bundle, kind, "AI")
+                    val summary = persistCharacterBundle(
+                        story = story,
+                        bundle = bundle,
+                        kind = kind,
+                        sourceLabel = "AI",
+                        autoCreateLocationMaps = true,
+                    )
                     _aiState.value = AiUiState.Success(summary)
                     onComplete()
                 }.onFailure { err ->
@@ -827,6 +1062,7 @@ class StoryViewModel(
         bundle: com.example.ai.CharacterImportBundle,
         kind: String,
         sourceLabel: String,
+        autoCreateLocationMaps: Boolean = false,
     ): String {
         bundle.characters.forEach { repository.saveCharacter(story, it) }
 
@@ -836,18 +1072,34 @@ class StoryViewModel(
         var addedLocations = 0
         var addedPowers = 0
         var addedItems = 0
+        var generatedMaps = 0
+        var activatedOne = story.activeMapId.isNotBlank() || story.mapGridJson != "{}"
 
         if (story.gmUserId == currentUserId) {
             val baseOrder = existingItems.size
             (bundle.locations + bundle.powers + bundle.items).forEachIndexed { idx, candidate ->
                 val key = candidate.category to candidate.title.trim().lowercase()
                 if (seenKeys.add(key)) {
-                    repository.saveWorldItem(
+                    val savedId = repository.saveWorldItem(
                         story,
                         candidate.copy(sortOrder = (baseOrder + idx).toLong())
-                    )
+                    ).getOrNull()
                     when (candidate.category) {
-                        "location" -> addedLocations++
+                        "location" -> {
+                            addedLocations++
+                            if (autoCreateLocationMaps && !savedId.isNullOrBlank()) {
+                                val created = createAiMapForLocationSuspend(
+                                    story = story,
+                                    locationItem = candidate,
+                                    locationId = savedId,
+                                    activateIfBoardBlank = !activatedOne,
+                                )
+                                if (created) {
+                                    generatedMaps++
+                                    activatedOne = true
+                                }
+                            }
+                        }
                         "power" -> addedPowers++
                         "item" -> addedItems++
                     }
@@ -857,6 +1109,7 @@ class StoryViewModel(
 
         val extraParts = buildList {
             if (addedLocations > 0) add("$addedLocations location(s)")
+            if (generatedMaps > 0) add("$generatedMaps synced map(s)")
             if (addedPowers > 0) add("$addedPowers power(s)")
             if (addedItems > 0) add("$addedItems item(s)")
         }
@@ -897,8 +1150,25 @@ class StoryViewModel(
                     apiKeyOverride = settings.aiApiKey,
                 )
                 res.onSuccess { items ->
-                    items.forEach { repository.saveWorldItem(story, it) }
-                    _aiState.value = AiUiState.Success("AI imported ${items.size} $category card(s).")
+                    var generatedMaps = 0
+                    var activatedOne = story.activeMapId.isNotBlank() || story.mapGridJson != "{}"
+                    items.forEach { item ->
+                        val savedId = repository.saveWorldItem(story, item).getOrNull()
+                        if (category == "location" && story.gmUserId == currentUserId && !savedId.isNullOrBlank()) {
+                            val ok = createAiMapForLocationSuspend(
+                                story = story,
+                                locationItem = item,
+                                locationId = savedId,
+                                activateIfBoardBlank = !activatedOne,
+                            )
+                            if (ok) {
+                                generatedMaps++
+                                activatedOne = true
+                            }
+                        }
+                    }
+                    val mapSuffix = if (generatedMaps > 0) " + generated $generatedMaps synced map(s)" else ""
+                    _aiState.value = AiUiState.Success("AI imported ${items.size} $category card(s)$mapSuffix.")
                     onComplete()
                 }.onFailure { err ->
                     _aiState.value = AiUiState.Error(err.localizedMessage ?: "AI parsing failed.")
@@ -963,10 +1233,23 @@ class StoryViewModel(
                         ownerId = currentUserId,
                     )
                     val baseOrder = existingItems.size
+                    var activatedOne = story.activeMapId.isNotBlank() || story.mapGridJson != "{}"
                     (bundle.locations + bundle.powers + bundle.items).forEachIndexed { idx, candidate ->
                         val key = candidate.category to candidate.title.trim().lowercase()
                         if (seenKeys.add(key)) {
-                            repository.saveWorldItem(story, candidate.copy(sortOrder = (baseOrder + idx).toLong()))
+                            val savedId = repository.saveWorldItem(
+                                story,
+                                candidate.copy(sortOrder = (baseOrder + idx).toLong())
+                            ).getOrNull()
+                            if (candidate.category == "location" && !savedId.isNullOrBlank()) {
+                                val created = createAiMapForLocationSuspend(
+                                    story = story,
+                                    locationItem = candidate,
+                                    locationId = savedId,
+                                    activateIfBoardBlank = !activatedOne,
+                                )
+                                if (created) activatedOne = true
+                            }
                         }
                     }
                 }

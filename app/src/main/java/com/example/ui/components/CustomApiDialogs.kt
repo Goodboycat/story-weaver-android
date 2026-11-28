@@ -1,9 +1,8 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,6 +13,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLink
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Visibility
@@ -21,7 +22,8 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,20 +44,22 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.ai.AiModelDefaults
 import com.example.ai.CustomAiProviderProfile
 import com.example.ai.UnorouterClient
 import java.util.UUID
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RegisterCustomApiDialog(
     initialProfile: CustomAiProviderProfile? = null,
+    existingProviders: List<CustomAiProviderProfile> = emptyList(),
     onSave: (CustomAiProviderProfile) -> Unit,
     onDelete: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
+    var editingProfileId by remember(initialProfile) { mutableStateOf(initialProfile?.id) }
     var curlInput by remember(initialProfile) { mutableStateOf("") }
     var nameInput by remember(initialProfile) { mutableStateOf(initialProfile?.name.orEmpty()) }
     var urlInput by remember(initialProfile) { mutableStateOf(initialProfile?.endpointUrl.orEmpty()) }
@@ -63,6 +67,12 @@ fun RegisterCustomApiDialog(
     var modelsInput by remember(initialProfile) {
         mutableStateOf(initialProfile?.allModels()?.joinToString(", ").orEmpty())
     }
+    var lastAutoFilledKey by remember(initialProfile) { mutableStateOf(initialProfile?.apiKey.orEmpty()) }
+    var lastAutoFilledModels by remember(initialProfile) {
+        mutableStateOf(initialProfile?.allModels()?.joinToString(", ").orEmpty())
+    }
+    var lastAutoFilledName by remember(initialProfile) { mutableStateOf(initialProfile?.name.orEmpty()) }
+    var showWebsiteDropdown by remember { mutableStateOf(false) }
     var showKey by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -95,6 +105,16 @@ fun RegisterCustomApiDialog(
     }
 
     val urlValid = UnorouterClient.isValidEndpointUrl(urlInput)
+    val selectedExistingProfile = existingProviders.firstOrNull { it.id == editingProfileId } ?: initialProfile
+    val selectedWebsiteLabel = selectedExistingProfile?.name?.takeIf { it.isNotBlank() }
+        ?: existingProviders.firstOrNull {
+            it.endpointUrl.equals(urlInput.trim(), ignoreCase = true) &&
+                (nameInput.isBlank() || it.name.equals(nameInput.trim(), ignoreCase = true))
+        }?.name
+        ?: AiModelDefaults.presetWebsiteEndpoints.firstOrNull { (_, u) ->
+            urlInput.trim().equals(u, ignoreCase = true)
+        }?.first
+        ?: if (urlInput.isNotBlank()) AiModelDefaults.inferProviderNameFromUrl(urlInput) else "Select Website Provider"
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -107,7 +127,7 @@ fun RegisterCustomApiDialog(
         },
         title = {
             Text(
-                text = if (initialProfile == null) "Register Custom API" else "Edit Custom API",
+                text = if (editingProfileId == null) "Register Custom API" else "Edit Website Provider",
                 style = MaterialTheme.typography.headlineSmall
             )
         },
@@ -164,30 +184,139 @@ fun RegisterCustomApiDialog(
 
                 HorizontalDivider()
 
-                Text(
-                    text = "Quick Provider Links",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    AiModelDefaults.presetWebsiteEndpoints.forEach { (siteLabel, siteUrl) ->
-                        FilterChip(
-                            selected = urlInput.trim().equals(siteUrl, ignoreCase = true),
-                            onClick = {
-                                urlInput = siteUrl
-                                if (nameInput.isBlank()) nameInput = siteLabel
-                                val defaults = AiModelDefaults.defaultModelsForHost(siteUrl)
-                                if (modelsInput.isBlank() && defaults.isNotEmpty()) {
-                                    modelsInput = defaults.joinToString(", ")
-                                }
-                                errorMessage = null
-                            },
-                            label = { Text(siteLabel) },
-                            modifier = Modifier.testTag("custom_api_preset_${siteLabel.lowercase()}")
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { showWebsiteDropdown = true },
+                        modifier = Modifier.fillMaxWidth().testTag("custom_api_website_dropdown_button")
+                    ) {
+                        Text(
+                            text = "Website Provider: $selectedWebsiteLabel",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Select website provider")
+                    }
+                    DropdownMenu(
+                        expanded = showWebsiteDropdown,
+                        onDismissRequest = { showWebsiteDropdown = false }
+                    ) {
+                        if (existingProviders.isNotEmpty()) {
+                            Text(
+                                text = "Added Website Providers",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                            existingProviders.forEach { profile ->
+                                val isSelected = editingProfileId == profile.id
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(profile.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(
+                                                text = "${profile.displayHost()} • ${if (profile.apiKey.isNotBlank()) "API key saved" else "No key saved"}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        if (isSelected) {
+                                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        }
+                                    },
+                                    onClick = {
+                                        editingProfileId = profile.id
+                                        nameInput = profile.name
+                                        urlInput = profile.endpointUrl
+                                        keyInput = profile.apiKey
+                                        modelsInput = profile.allModels().joinToString(", ")
+                                        lastAutoFilledName = profile.name
+                                        lastAutoFilledKey = profile.apiKey
+                                        lastAutoFilledModels = modelsInput
+                                        statusMessage = "Loaded saved provider \"${profile.name}\" and its API key."
+                                        errorMessage = null
+                                        showWebsiteDropdown = false
+                                    },
+                                    modifier = Modifier.testTag("custom_api_dialog_saved_${profile.id}")
+                                )
+                            }
+                            HorizontalDivider()
+                        }
+
+                        Text(
+                            text = "Preset Website Providers",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                        AiModelDefaults.presetWebsiteEndpoints.forEach { (siteLabel, siteUrl) ->
+                            val matchingSaved = existingProviders.firstOrNull {
+                                it.endpointUrl.equals(siteUrl, ignoreCase = true) ||
+                                    AiModelDefaults.hostOf(it.endpointUrl) == AiModelDefaults.hostOf(siteUrl)
+                            }
+                            val savedPresetKey = matchingSaved?.apiKey.orEmpty()
+                            val isSelected = (editingProfileId != null && editingProfileId == matchingSaved?.id) ||
+                                (editingProfileId == null && urlInput.trim().equals(siteUrl, ignoreCase = true))
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(siteLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            text = if (savedPresetKey.isNotBlank()) "$siteUrl • API key saved" else siteUrl,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                },
+                                leadingIcon = {
+                                    if (isSelected) {
+                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    }
+                                },
+                                onClick = {
+                                    if (matchingSaved != null) {
+                                        editingProfileId = matchingSaved.id
+                                        nameInput = matchingSaved.name
+                                        urlInput = matchingSaved.endpointUrl
+                                        keyInput = matchingSaved.apiKey
+                                        modelsInput = matchingSaved.allModels().joinToString(", ")
+                                        lastAutoFilledName = matchingSaved.name
+                                        lastAutoFilledKey = matchingSaved.apiKey
+                                        lastAutoFilledModels = modelsInput
+                                    } else {
+                                        editingProfileId = initialProfile?.id
+                                        urlInput = siteUrl
+                                        if (nameInput.isBlank() || nameInput == lastAutoFilledName) {
+                                            nameInput = siteLabel
+                                            lastAutoFilledName = siteLabel
+                                        }
+                                        if (keyInput.isBlank() || keyInput == lastAutoFilledKey) {
+                                            keyInput = savedPresetKey
+                                            lastAutoFilledKey = savedPresetKey
+                                        }
+                                        val defaults = AiModelDefaults.defaultModelsForHost(siteUrl).joinToString(", ")
+                                        if (modelsInput.isBlank() || modelsInput == lastAutoFilledModels) {
+                                            modelsInput = defaults
+                                            lastAutoFilledModels = defaults
+                                        }
+                                    }
+                                    statusMessage = if (savedPresetKey.isNotBlank()) {
+                                        "Loaded saved API key for $siteLabel."
+                                    } else {
+                                        null
+                                    }
+                                    errorMessage = null
+                                    showWebsiteDropdown = false
+                                },
+                                modifier = Modifier.testTag("custom_api_preset_${siteLabel.lowercase()}")
+                            )
+                        }
                     }
                 }
 
@@ -280,10 +409,11 @@ fun RegisterCustomApiDialog(
                     }
                 }
 
-                if (initialProfile != null && onDelete != null) {
+                val deletableId = editingProfileId
+                if (deletableId != null && onDelete != null) {
                     OutlinedButton(
                         onClick = {
-                            onDelete(initialProfile.id)
+                            onDelete(deletableId)
                             onDismiss()
                         },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
@@ -314,14 +444,15 @@ fun RegisterCustomApiDialog(
                     val fallbackModels = parsedModels.ifEmpty {
                         AiModelDefaults.defaultModelsForHost(finalUrl)
                     }
-                    val selectedModel = initialProfile?.selectedModel
+                    val matchingExisting = existingProviders.firstOrNull { it.id == editingProfileId } ?: initialProfile
+                    val selectedModel = matchingExisting?.selectedModel
                         ?.takeIf { it.isNotBlank() && it in fallbackModels }
                         ?: fallbackModels.firstOrNull().orEmpty()
                     val finalName = nameInput.trim()
                         .ifBlank { AiModelDefaults.inferProviderNameFromUrl(finalUrl) }
                     onSave(
                         CustomAiProviderProfile(
-                            id = initialProfile?.id ?: "custom_${UUID.randomUUID().toString().take(10)}",
+                            id = editingProfileId ?: "custom_${UUID.randomUUID().toString().take(10)}",
                             name = finalName,
                             endpointUrl = finalUrl,
                             apiKey = keyInput.trim(),
@@ -334,7 +465,7 @@ fun RegisterCustomApiDialog(
                 enabled = urlInput.isNotBlank() || curlInput.isNotBlank(),
                 modifier = Modifier.testTag("save_custom_api_button")
             ) {
-                Text(if (initialProfile == null) "Register & Use" else "Save Changes")
+                Text(if (editingProfileId == null) "Register & Use" else "Save & Use")
             }
         },
         dismissButton = {

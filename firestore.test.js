@@ -312,3 +312,131 @@ test("Chat supports rich entity refs, Discord replies, character pins targeting 
   );
 });
 
+test("Unrestricted map grids (>30x30), saved_maps CRUD, location-map sync, and player token updates", async () => {
+  const gmDb = testEnv.authenticatedContext(GM_UID).firestore();
+  const playerDb = testEnv.authenticatedContext(PLAYER_UID).firestore();
+  const strangerDb = testEnv.authenticatedContext(STRANGER_UID).firestore();
+  const ts = new Date(Date.now() - 2000);
+
+  // Large grid > 30x30 succeeds
+  await assertSucceeds(
+    gmDb.collection("stories").doc("story_large_map").set({
+      ...baseStory(ts),
+      memberUids: [GM_UID, PLAYER_UID],
+      mapWidth: 150,
+      mapHeight: 120,
+      activeMapId: "map_citadel",
+      activeMapName: "Iron Citadel",
+      activeLocationId: "loc_citadel",
+    })
+  );
+
+  // Grid smaller than 1x1 fails
+  await assertFails(
+    gmDb.collection("stories").doc("story_bad_grid").set({
+      ...baseStory(ts),
+      mapWidth: 0,
+      mapHeight: 10,
+    })
+  );
+
+  // GM creates linked location world_item with linkedMapId
+  await assertSucceeds(
+    gmDb.collection("stories").doc("story_large_map").collection("world_items").doc("loc_citadel").set({
+      storyId: "story_large_map",
+      gmUserId: GM_UID,
+      ownerId: GM_UID,
+      memberUids: [GM_UID, PLAYER_UID],
+      category: "location",
+      title: "Iron Citadel",
+      subtitle: "Fortress",
+      description: "Vast mountain keep.",
+      iconName: "Place",
+      iconEmoji: "🏰",
+      sortOrder: 0,
+      tagsJson: '["Fortress"]',
+      linkedMapId: "map_citadel",
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // GM creates saved_map with 150x120 dimensions linked to loc_citadel
+  await assertSucceeds(
+    gmDb.collection("stories").doc("story_large_map").collection("saved_maps").doc("map_citadel").set({
+      storyId: "story_large_map",
+      gmUserId: GM_UID,
+      ownerId: GM_UID,
+      memberUids: [GM_UID, PLAYER_UID],
+      name: "Iron Citadel",
+      linkedLocationId: "loc_citadel",
+      linkedLocationTitle: "Iron Citadel",
+      width: 150,
+      height: 120,
+      gridJson: '{"120,100":{"terrain":"stone"}}',
+      tokensJson: "[]",
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Member can query saved_maps with memberUids filter; unfiltered list fails
+  await assertSucceeds(
+    playerDb.collection("stories").doc("story_large_map").collection("saved_maps")
+      .where("memberUids", "array-contains", PLAYER_UID).get()
+  );
+  await assertFails(
+    playerDb.collection("stories").doc("story_large_map").collection("saved_maps").get()
+  );
+
+  // Member can update tokensJson on saved_map, but cannot change width/gridJson/name
+  await assertSucceeds(
+    playerDb.collection("stories").doc("story_large_map").collection("saved_maps").doc("map_citadel").update({
+      tokensJson: '[{"id":"p1","x":45,"y":60}]',
+      updatedAt: new Date(Date.now() - 500),
+    })
+  );
+  await assertFails(
+    playerDb.collection("stories").doc("story_large_map").collection("saved_maps").doc("map_citadel").update({
+      width: 200,
+      updatedAt: new Date(Date.now() - 400),
+    })
+  );
+
+  // Player cannot create or delete saved_map; stranger cannot read
+  await assertFails(
+    playerDb.collection("stories").doc("story_large_map").collection("saved_maps").doc("map_player").set({
+      storyId: "story_large_map",
+      gmUserId: GM_UID,
+      ownerId: PLAYER_UID,
+      memberUids: [GM_UID, PLAYER_UID],
+      name: "Illegal Map",
+      width: 20,
+      height: 20,
+      gridJson: "{}",
+      tokensJson: "[]",
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+  await assertFails(
+    playerDb.collection("stories").doc("story_large_map").collection("saved_maps").doc("map_citadel").delete()
+  );
+  await assertFails(
+    strangerDb.collection("stories").doc("story_large_map").collection("saved_maps").doc("map_citadel").get()
+  );
+
+  // GM can resize saved_map freely (e.g., 500x400) and delete
+  await assertSucceeds(
+    gmDb.collection("stories").doc("story_large_map").collection("saved_maps").doc("map_citadel").update({
+      width: 500,
+      height: 400,
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+  await assertSucceeds(
+    gmDb.collection("stories").doc("story_large_map").collection("saved_maps").doc("map_citadel").delete()
+  );
+});
+
+

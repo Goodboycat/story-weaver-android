@@ -911,6 +911,7 @@ fun AiModelSelectorBar(
     if (showRegisterCustomDialog && effectiveSaveCustom != null) {
         RegisterCustomApiDialog(
             initialProfile = editingCustomProfile,
+            existingProviders = customProviders,
             onSave = { profile ->
                 effectiveSaveCustom(profile)
                 curlFeedback = "Saved custom API \"${profile.name}\"."

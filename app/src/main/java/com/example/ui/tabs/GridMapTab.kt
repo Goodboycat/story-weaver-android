@@ -25,8 +25,11 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -35,19 +38,29 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CropSquare
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PersonPinCircle
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -91,14 +104,18 @@ import com.example.ai.AiProvider
 import com.example.data.Character
 import com.example.data.GridCell
 import com.example.data.JsonCodecs
+import com.example.data.MAP_DEFAULT_SIZE
+import com.example.data.MAP_MIN_SIZE
 import com.example.data.MapBackgroundLayer
 import com.example.data.MapColorPalette
 import com.example.data.MapPaintOutcome
 import com.example.data.MapToken
 import com.example.data.QuickMapAsset
 import com.example.data.QuickMapBlock
+import com.example.data.SavedMap
 import com.example.data.Story
 import com.example.data.UserSettings
+import com.example.data.WorldItem
 import com.example.data.sanitizeMapEmoji
 import com.example.ui.components.AllEmojiPickerDialog
 import com.example.ui.components.IdeaGuideDialog
@@ -161,6 +178,15 @@ fun GridMapTab(
     onAddQuickAsset: (QuickMapAsset) -> Unit,
     onAddQuickBlock: (QuickMapBlock) -> Unit,
     aiConfigActions: com.example.ui.components.AiProviderConfigActions? = null,
+    savedMaps: List<SavedMap> = emptyList(),
+    worldLocations: List<WorldItem> = emptyList(),
+    onSaveMapToLibrary: (mapName: String, width: Int, height: Int, grid: Map<String, GridCell>, tokens: List<MapToken>, backgroundUrl: String?, linkedLocation: WorldItem?, existingMapId: String) -> Unit = { _, _, _, _, _, _, _, _ -> },
+    onLoadSavedMap: (SavedMap) -> Unit = {},
+    onStartBlankMap: (width: Int, height: Int) -> Unit = { _, _ -> },
+    onRenameSavedMap: (SavedMap, String) -> Unit = { _, _ -> },
+    onLinkMapToLocation: (SavedMap, WorldItem?) -> Unit = { _, _ -> },
+    onDeleteSavedMap: (SavedMap) -> Unit = {},
+    onJumpToLocation: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val tileAtlas by produceState(initialValue = com.example.data.TileAtlas.peek(), context) {
@@ -168,16 +194,24 @@ fun GridMapTab(
     }
     val scope = rememberCoroutineScope()
 
-    var width by remember(story.id, story.mapWidth) { mutableIntStateOf(story.mapWidth.toInt().coerceIn(4, com.example.data.MAP_MAX_SIZE)) }
-    var height by remember(story.id, story.mapHeight) { mutableIntStateOf(story.mapHeight.toInt().coerceIn(4, com.example.data.MAP_MAX_SIZE)) }
-    var grid by remember(story.id, story.mapGridJson) { mutableStateOf(JsonCodecs.decodeGrid(story.mapGridJson)) }
-    var tokens by remember(story.id, story.mapTokensJson) { mutableStateOf(JsonCodecs.decodeTokens(story.mapTokensJson)) }
-    var bgLayers by remember(story.id, story.mapBackgroundUrl) {
+    var width by remember(story.id, story.mapWidth, story.activeMapId) {
+        mutableIntStateOf(story.mapWidth.toInt().coerceAtLeast(MAP_MIN_SIZE))
+    }
+    var height by remember(story.id, story.mapHeight, story.activeMapId) {
+        mutableIntStateOf(story.mapHeight.toInt().coerceAtLeast(MAP_MIN_SIZE))
+    }
+    var grid by remember(story.id, story.mapGridJson, story.activeMapId) {
+        mutableStateOf(JsonCodecs.decodeGrid(story.mapGridJson))
+    }
+    var tokens by remember(story.id, story.mapTokensJson, story.activeMapId) {
+        mutableStateOf(JsonCodecs.decodeTokens(story.mapTokensJson))
+    }
+    var bgLayers by remember(story.id, story.mapBackgroundUrl, story.activeMapId) {
         mutableStateOf(
             JsonCodecs.decodeMapBackgroundLayers(
                 story.mapBackgroundUrl,
-                story.mapWidth.toInt().coerceIn(4, com.example.data.MAP_MAX_SIZE),
-                story.mapHeight.toInt().coerceIn(4, com.example.data.MAP_MAX_SIZE)
+                story.mapWidth.toInt().coerceAtLeast(MAP_MIN_SIZE),
+                story.mapHeight.toInt().coerceAtLeast(MAP_MIN_SIZE)
             )
         )
     }
@@ -203,6 +237,8 @@ fun GridMapTab(
     var showAiMapDialog by remember { mutableStateOf(false) }
     var showAiCodeDialog by remember { mutableStateOf(false) }
     var showColorPaletteDialog by remember { mutableStateOf(false) }
+    var showSaveMapDialog by remember { mutableStateOf(false) }
+    var showSavedMapsDialog by remember { mutableStateOf(false) }
     var aiUndoSnapshot by remember { mutableStateOf<AiMapUndoSnapshot?>(null) }
     var showTokenPicker by remember { mutableStateOf(false) }
     var showGuide by remember { mutableStateOf(false) }
@@ -488,7 +524,23 @@ fun GridMapTab(
                 ) {
                     Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Map (${width}x$height)")
+                    Text("Grid (${width}x$height)")
+                }
+                OutlinedButton(
+                    onClick = { showSaveMapDialog = true },
+                    modifier = Modifier.testTag("map_save_button")
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Save")
+                }
+                OutlinedButton(
+                    onClick = { showSavedMapsDialog = true },
+                    modifier = Modifier.testTag("map_library_button")
+                ) {
+                    Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Maps (${savedMaps.size})")
                 }
                 IconButton(
                     onClick = {
@@ -508,6 +560,69 @@ fun GridMapTab(
             }
             IconButton(onClick = { showGuide = true }) {
                 Icon(Icons.Default.Lightbulb, contentDescription = "Map Guide")
+            }
+        }
+
+        // Active Map & Synced Location Status Strip
+        val activeSavedMap = remember(savedMaps, story.activeMapId) {
+            savedMaps.firstOrNull { it.id == story.activeMapId }
+        }
+        val activeLinkedLocation = remember(worldLocations, story.activeLocationId, activeSavedMap) {
+            val locId = story.activeLocationId.ifBlank { activeSavedMap?.linkedLocationId.orEmpty() }
+            if (locId.isNotBlank()) worldLocations.firstOrNull { it.id == locId } else null
+        }
+        if (story.activeMapName.isNotBlank() || activeLinkedLocation != null || savedMaps.isNotEmpty()) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                modifier = Modifier.fillMaxWidth().testTag("map_active_status_bar")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (story.activeMapName.isNotBlank()) {
+                            "🗺️ ${story.activeMapName} (${width}x$height)"
+                        } else {
+                            "🗺️ Draft Board (${width}x$height)"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (activeLinkedLocation != null) {
+                        FilterChip(
+                            selected = true,
+                            onClick = { onJumpToLocation(activeLinkedLocation.title) },
+                            leadingIcon = {
+                                Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(14.dp))
+                            },
+                            label = {
+                                Text(
+                                    activeLinkedLocation.title,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            modifier = Modifier.testTag("map_synced_location_chip")
+                        )
+                    } else if (isGmMode && activeSavedMap != null && worldLocations.isNotEmpty()) {
+                        TextButton(
+                            onClick = { showSavedMapsDialog = true },
+                            modifier = Modifier.testTag("map_link_location_hint")
+                        ) {
+                            Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Sync Location", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
             }
         }
 
@@ -820,17 +935,26 @@ fun GridMapTab(
             val baseCellPx = with(density) { 36.dp.toPx() }
             val boardWidthPx = width * baseCellPx
             val boardHeightPx = height * baseCellPx
+            val viewW = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+            val viewH = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+            val visMinX = (((-panOffset.x) / scale) / baseCellPx).toInt().minus(1).coerceIn(0, (width - 1).coerceAtLeast(0))
+            val visMaxX = ((((viewW - panOffset.x) / scale) / baseCellPx).toInt() + 1).coerceIn(0, (width - 1).coerceAtLeast(0))
+            val visMinY = (((-panOffset.y) / scale) / baseCellPx).toInt().minus(1).coerceIn(0, (height - 1).coerceAtLeast(0))
+            val visMaxY = ((((viewH - panOffset.y) / scale) / baseCellPx).toInt() + 1).coerceIn(0, (height - 1).coerceAtLeast(0))
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(activeTool) {
+                    .pointerInput(activeTool, width, height) {
                         if (activeTool == MapTool.PAN_ZOOM) {
                             detectTransformGestures { _, pan, zoom, _ ->
-                                scale = (scale * zoom).coerceIn(0.6f, 2.8f)
+                                val nextScale = (scale * zoom).coerceIn(0.08f, 3.5f)
+                                scale = nextScale
+                                val maxPanX = (boardWidthPx * nextScale).coerceAtLeast(viewW)
+                                val maxPanY = (boardHeightPx * nextScale).coerceAtLeast(viewH)
                                 panOffset = Offset(
-                                    (panOffset.x + pan.x).coerceIn(-boardWidthPx, boardWidthPx),
-                                    (panOffset.y + pan.y).coerceIn(-boardHeightPx, boardHeightPx)
+                                    (panOffset.x + pan.x).coerceIn(-maxPanX, viewW * 0.85f),
+                                    (panOffset.y + pan.y).coerceIn(-maxPanY, viewH * 0.85f)
                                 )
                             }
                         }
@@ -940,37 +1064,79 @@ fun GridMapTab(
                         }
                     }
 
-                    // Painted Background Color Tiles & Grid Lines
+                    // Painted Background Color Tiles & Grid Lines (Viewport-Culled for Arbitrary Grid Sizes)
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        // Legacy flat colours first, then the 16px tileset on top (terrain -> lines -> objects)
-                        for (x in 0 until width) {
-                            for (y in 0 until height) {
-                                val cell = grid[cellKey(x, y)]
-                                if (cell?.colorHex != null && cell.tile == null) {
-                                    val c = try {
-                                        Color(android.graphics.Color.parseColor(cell.colorHex))
-                                    } catch (_: Exception) {
-                                        Color.DarkGray
+                        grid.forEach { (key, cell) ->
+                            if (cell.colorHex != null && cell.tile == null) {
+                                val comma = key.indexOf(',')
+                                if (comma > 0) {
+                                    val gx = key.substring(0, comma).toIntOrNull() ?: return@forEach
+                                    val gy = key.substring(comma + 1).toIntOrNull() ?: return@forEach
+                                    if (gx in visMinX..visMaxX && gy in visMinY..visMaxY) {
+                                        val c = try {
+                                            Color(android.graphics.Color.parseColor(cell.colorHex))
+                                        } catch (_: Exception) {
+                                            Color.DarkGray
+                                        }
+                                        drawRect(
+                                            color = c.copy(alpha = 0.88f),
+                                            topLeft = Offset(gx * baseCellPx, gy * baseCellPx),
+                                            size = Size(baseCellPx, baseCellPx)
+                                        )
                                     }
-                                    drawRect(
-                                        color = c.copy(alpha = 0.88f),
-                                        topLeft = Offset(x * baseCellPx, y * baseCellPx),
-                                        size = Size(baseCellPx, baseCellPx)
-                                    )
                                 }
                             }
                         }
-                        tileAtlas?.let { drawTileMap(it, grid, width, height, baseCellPx) }
-                        for (x in 0 until width) {
-                            for (y in 0 until height) {
-                                drawRect(
-                                    color = Color.White.copy(alpha = if (tileAtlas != null && grid[cellKey(x, y)]?.tile != null) 0.05f else 0.16f),
-                                    topLeft = Offset(x * baseCellPx, y * baseCellPx),
-                                    size = Size(baseCellPx, baseCellPx),
-                                    style = Stroke(width = 1f)
-                                )
-                            }
+                        tileAtlas?.let {
+                            drawTileMap(
+                                atlas = it,
+                                grid = grid,
+                                width = width,
+                                height = height,
+                                cellPx = baseCellPx,
+                                visMinX = visMinX,
+                                visMaxX = visMaxX,
+                                visMinY = visMinY,
+                                visMaxY = visMaxY,
+                            )
                         }
+                        val cellScreenPx = baseCellPx * scale
+                        val step = if (cellScreenPx < 7f) 5 else 1
+                        val startLineX = (visMinX / step) * step
+                        val endLineX = (visMaxX + 1).coerceAtMost(width)
+                        val startLineY = (visMinY / step) * step
+                        val endLineY = (visMaxY + 1).coerceAtMost(height)
+                        val lineStartY = visMinY * baseCellPx
+                        val lineEndY = (visMaxY + 1).coerceAtMost(height) * baseCellPx
+                        val lineStartX = visMinX * baseCellPx
+                        val lineEndX = (visMaxX + 1).coerceAtMost(width) * baseCellPx
+
+                        for (x in startLineX..endLineX step step) {
+                            val px = x * baseCellPx
+                            val isMajor = x % 5 == 0
+                            drawLine(
+                                color = Color.White.copy(alpha = if (isMajor) 0.24f else 0.12f),
+                                start = Offset(px, lineStartY),
+                                end = Offset(px, lineEndY),
+                                strokeWidth = if (isMajor) 1.5f else 1f
+                            )
+                        }
+                        for (y in startLineY..endLineY step step) {
+                            val py = y * baseCellPx
+                            val isMajor = y % 5 == 0
+                            drawLine(
+                                color = Color.White.copy(alpha = if (isMajor) 0.24f else 0.12f),
+                                start = Offset(lineStartX, py),
+                                end = Offset(lineEndX, py),
+                                strokeWidth = if (isMajor) 1.5f else 1f
+                            )
+                        }
+                        drawRect(
+                            color = Color.White.copy(alpha = 0.35f),
+                            topLeft = Offset.Zero,
+                            size = Size(boardWidthPx, boardHeightPx),
+                            style = Stroke(width = 2f)
+                        )
                         rectStart?.let { (rx, ry) ->
                             drawRect(
                                 color = Color.Yellow,
@@ -981,11 +1147,13 @@ fun GridMapTab(
                         }
                     }
 
-                    // Cell Foreground Overlays (Emoji or Image ABOVE the Background Block Color)
+                    // Cell Foreground Overlays (Viewport-Culled Emoji or Image ABOVE the Background Block Color)
                     grid.forEach { (key, cell) ->
-                        val parts = key.split(",")
-                        val gx = parts.getOrNull(0)?.toIntOrNull() ?: return@forEach
-                        val gy = parts.getOrNull(1)?.toIntOrNull() ?: return@forEach
+                        val comma = key.indexOf(',')
+                        if (comma <= 0) return@forEach
+                        val gx = key.substring(0, comma).toIntOrNull() ?: return@forEach
+                        val gy = key.substring(comma + 1).toIntOrNull() ?: return@forEach
+                        if (gx !in visMinX..visMaxX || gy !in visMinY..visMaxY) return@forEach
                         if (gx !in 0 until width || gy !in 0 until height) return@forEach
                         val cleanCellEmoji = remember(cell.emoji) { sanitizeMapEmoji(cell.emoji) }
                         if (cell.imageBase64 != null || cleanCellEmoji != null) {
@@ -1441,8 +1609,422 @@ fun GridMapTab(
         )
     }
 
+    if (showSaveMapDialog) {
+        val activeSaved = savedMaps.firstOrNull { it.id == story.activeMapId }
+        val initialLoc = worldLocations.firstOrNull {
+            it.id == story.activeLocationId || it.id == activeSaved?.linkedLocationId
+        }
+        SaveMapToLibraryDialog(
+            initialName = story.activeMapName.ifBlank { initialLoc?.title ?: "Battlemap ${savedMaps.size + 1}" },
+            activeSavedMap = activeSaved,
+            worldLocations = worldLocations,
+            initialLocation = initialLoc,
+            onSaveNew = { name, linkedLoc ->
+                onSaveMapToLibrary(
+                    name,
+                    width,
+                    height,
+                    grid,
+                    tokens,
+                    encodedBackground(),
+                    linkedLoc,
+                    "",
+                )
+                showSaveMapDialog = false
+            },
+            onUpdateExisting = if (activeSaved != null) {
+                { name, linkedLoc ->
+                    onSaveMapToLibrary(
+                        name,
+                        width,
+                        height,
+                        grid,
+                        tokens,
+                        encodedBackground(),
+                        linkedLoc,
+                        activeSaved.id,
+                    )
+                    showSaveMapDialog = false
+                }
+            } else null,
+            onDismiss = { showSaveMapDialog = false }
+        )
+    }
+
+    if (showSavedMapsDialog) {
+        SavedMapsManagerDialog(
+            savedMaps = savedMaps,
+            activeMapId = story.activeMapId,
+            worldLocations = worldLocations,
+            onLoadMap = { map ->
+                onLoadSavedMap(map)
+                showSavedMapsDialog = false
+            },
+            onNewBlankMap = {
+                onStartBlankMap(MAP_DEFAULT_SIZE, MAP_DEFAULT_SIZE)
+                showSavedMapsDialog = false
+            },
+            onRenameMap = onRenameSavedMap,
+            onLinkLocation = onLinkMapToLocation,
+            onDeleteMap = onDeleteSavedMap,
+            onOpenSaveCurrent = {
+                showSavedMapsDialog = false
+                showSaveMapDialog = true
+            },
+            onDismiss = { showSavedMapsDialog = false }
+        )
+    }
+
     if (showGuide) {
         IdeaGuideDialog(guideKey = "map", onDismiss = { showGuide = false })
+    }
+}
+
+@Composable
+private fun SaveMapToLibraryDialog(
+    initialName: String,
+    activeSavedMap: SavedMap?,
+    worldLocations: List<WorldItem>,
+    initialLocation: WorldItem?,
+    onSaveNew: (name: String, linkedLocation: WorldItem?) -> Unit,
+    onUpdateExisting: ((name: String, linkedLocation: WorldItem?) -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    var mapName by remember(initialName) { mutableStateOf(initialName) }
+    var selectedLocation by remember(initialLocation) { mutableStateOf(initialLocation) }
+    var showLocationMenu by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Save, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("Save Map to Library") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = mapName,
+                    onValueChange = { mapName = it },
+                    label = { Text("Map Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("save_map_name_input")
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Sync with Location Card (Optional)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Box {
+                        OutlinedButton(
+                            onClick = { showLocationMenu = true },
+                            modifier = Modifier.fillMaxWidth().testTag("save_map_location_picker")
+                        ) {
+                            Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = selectedLocation?.let { "${it.iconEmoji} ${it.title}" } ?: "No Location Linked",
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showLocationMenu,
+                            onDismissRequest = { showLocationMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("None (Standalone Map)") },
+                                onClick = {
+                                    selectedLocation = null
+                                    showLocationMenu = false
+                                }
+                            )
+                            worldLocations.forEach { loc ->
+                                DropdownMenuItem(
+                                    text = { Text("${loc.iconEmoji} ${loc.title}") },
+                                    onClick = {
+                                        selectedLocation = loc
+                                        if (mapName.isBlank() || mapName.startsWith("Battlemap ")) {
+                                            mapName = loc.title
+                                        }
+                                        showLocationMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onUpdateExisting != null && activeSavedMap != null) {
+                    OutlinedButton(
+                        onClick = { onSaveNew(mapName, selectedLocation) },
+                        enabled = mapName.isNotBlank(),
+                        modifier = Modifier.testTag("save_map_as_copy_button")
+                    ) {
+                        Text("Save Copy")
+                    }
+                    Button(
+                        onClick = { onUpdateExisting(mapName, selectedLocation) },
+                        enabled = mapName.isNotBlank(),
+                        modifier = Modifier.testTag("save_map_update_button")
+                    ) {
+                        Text("Update")
+                    }
+                } else {
+                    Button(
+                        onClick = { onSaveNew(mapName, selectedLocation) },
+                        enabled = mapName.isNotBlank(),
+                        modifier = Modifier.testTag("save_map_confirm_button")
+                    ) {
+                        Text("Save Map")
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun SavedMapsManagerDialog(
+    savedMaps: List<SavedMap>,
+    activeMapId: String,
+    worldLocations: List<WorldItem>,
+    onLoadMap: (SavedMap) -> Unit,
+    onNewBlankMap: () -> Unit,
+    onRenameMap: (SavedMap, String) -> Unit,
+    onLinkLocation: (SavedMap, WorldItem?) -> Unit,
+    onDeleteMap: (SavedMap) -> Unit,
+    onOpenSaveCurrent: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var renamingMap by remember { mutableStateOf<SavedMap?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var linkingMap by remember { mutableStateOf<SavedMap?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.FolderOpen, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("Saved Maps (${savedMaps.size})") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = onOpenSaveCurrent,
+                        modifier = Modifier.weight(1f).testTag("saved_maps_save_current_button")
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Save Current", style = MaterialTheme.typography.labelMedium)
+                    }
+                    OutlinedButton(
+                        onClick = onNewBlankMap,
+                        modifier = Modifier.weight(1f).testTag("saved_maps_new_blank_button")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Blank Map", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+
+                if (savedMaps.isEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "No saved maps yet. Save the current board or let AI create a Location to auto-generate a map!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .size(width = 400.dp, height = 300.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(savedMaps, key = { it.id }) { map ->
+                            val isActive = map.id == activeMapId
+                            val linkedLoc = worldLocations.firstOrNull { it.id == map.linkedLocationId }
+                            Surface(
+                                color = if (isActive) {
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                                },
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier.fillMaxWidth().testTag("saved_map_card_${map.id}")
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = if (isActive) "${map.name} • Active" else map.name,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "${map.width}×${map.height}" +
+                                                    (linkedLoc?.let { " • 📍 ${it.title}" }
+                                                        ?: map.linkedLocationTitle.takeIf { it.isNotBlank() }?.let { " • 📍 $it" }
+                                                        ?: " • Unlinked"),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Button(
+                                            onClick = { onLoadMap(map) },
+                                            modifier = Modifier.testTag("load_saved_map_${map.id}")
+                                        ) {
+                                            Text(if (isActive) "Reload" else "Load", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        TextButton(
+                                            onClick = { linkingMap = map },
+                                            modifier = Modifier.testTag("link_saved_map_${map.id}")
+                                        ) {
+                                            Icon(
+                                                if (linkedLoc != null) Icons.Default.Link else Icons.Default.LinkOff,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(if (linkedLoc != null) "Change Loc" else "Link Loc", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        TextButton(
+                                            onClick = {
+                                                renameText = map.name
+                                                renamingMap = map
+                                            },
+                                            modifier = Modifier.testTag("rename_saved_map_${map.id}")
+                                        ) {
+                                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Rename", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        IconButton(
+                                            onClick = { onDeleteMap(map) },
+                                            modifier = Modifier.size(32.dp).testTag("delete_saved_map_${map.id}")
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = "Delete Map",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
+
+    if (renamingMap != null) {
+        val target = renamingMap!!
+        AlertDialog(
+            onDismissRequest = { renamingMap = null },
+            title = { Text("Rename Map") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    label = { Text("Map Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onRenameMap(target, renameText)
+                        renamingMap = null
+                    },
+                    enabled = renameText.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renamingMap = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (linkingMap != null) {
+        val target = linkingMap!!
+        AlertDialog(
+            onDismissRequest = { linkingMap = null },
+            title = { Text("Sync Map to Location") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            onLinkLocation(target, null)
+                            linkingMap = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Unlink Location (Standalone Map)")
+                    }
+                    if (worldLocations.isEmpty()) {
+                        Text(
+                            text = "No Locations exist yet. Create a Location card in the Locations tab first.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        worldLocations.forEach { loc ->
+                            val isSelected = loc.id == target.linkedLocationId
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    onLinkLocation(target, loc)
+                                    linkingMap = null
+                                },
+                                leadingIcon = { Text(loc.iconEmoji.ifBlank { "🏰" }) },
+                                label = { Text(loc.title) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { linkingMap = null }) { Text("Close") }
+            }
+        )
     }
 }
 

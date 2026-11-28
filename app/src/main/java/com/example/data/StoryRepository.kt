@@ -279,7 +279,7 @@ class StoryRepository(
         val uid = auth.currentUser?.uid ?: return
         if (uid != story.gmUserId || story.id.isBlank()) return
         val expectedMembers = story.memberUids
-        val subcollections = listOf("characters", "world_items", "rolls", "messages", "logs")
+        val subcollections = listOf("characters", "world_items", "saved_maps", "rolls", "messages", "logs")
         try {
             for (sub in subcollections) {
                 val docs = db.collection("stories").document(story.id)
@@ -292,7 +292,7 @@ class StoryRepository(
                 for (doc in docs.documents) {
                     val current = (doc.get("memberUids") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
                     if (current.toSet() != expectedMembers.toSet()) {
-                        if (sub == "characters" || sub == "world_items") {
+                        if (sub == "characters" || sub == "world_items" || sub == "saved_maps") {
                             batch.update(
                                 doc.reference,
                                 mapOf(
@@ -322,24 +322,49 @@ class StoryRepository(
         gridJson: String,
         tokensJson: String,
         backgroundUrl: String?,
+        activeMapId: String = "",
     ): Result<Unit> {
         val path = "stories/$storyId"
         return try {
-            requireUserId()
-            val w = width.coerceIn(4, com.example.data.MAP_MAX_SIZE).toLong()
-            val h = height.coerceIn(4, com.example.data.MAP_MAX_SIZE).toLong()
+            val uid = requireUserId()
+            val w = width.coerceAtLeast(MAP_MIN_SIZE).toLong()
+            val h = height.coerceAtLeast(MAP_MIN_SIZE).toLong()
+            val cleanGrid = gridJson.take(900_000)
+            val cleanTokens = tokensJson.take(100_000)
+            val cleanBg = backgroundUrl?.take(400_000)
             val updates = mutableMapOf<String, Any?>(
                 "mapWidth" to w,
                 "mapHeight" to h,
-                "mapGridJson" to gridJson.take(450_000),
-                "mapTokensJson" to tokensJson.take(100_000),
-                "mapBackgroundUrl" to backgroundUrl?.take(400_000),
+                "mapGridJson" to cleanGrid,
+                "mapTokensJson" to cleanTokens,
+                "mapBackgroundUrl" to cleanBg,
                 "updatedAt" to FieldValue.serverTimestamp(),
             )
             if (backgroundUrl == null) {
                 updates["mapBackgroundUrl"] = null
             }
             db.collection("stories").document(storyId).update(updates).await()
+
+            if (activeMapId.isNotBlank()) {
+                try {
+                    val mapRef = db.collection("stories").document(storyId)
+                        .collection("saved_maps").document(activeMapId)
+                    val snap = mapRef.get().await()
+                    if (snap.exists() && snap.getString("gmUserId") == uid) {
+                        val mapUpdates = mutableMapOf<String, Any?>(
+                            "width" to w,
+                            "height" to h,
+                            "gridJson" to cleanGrid,
+                            "tokensJson" to cleanTokens,
+                            "backgroundUrl" to cleanBg,
+                            "updatedAt" to FieldValue.serverTimestamp(),
+                        )
+                        mapRef.update(mapUpdates).await()
+                    }
+                } catch (_: Exception) {
+                    // Best-effort sync to linked saved_map
+                }
+            }
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -349,13 +374,233 @@ class StoryRepository(
         }
     }
 
-    suspend fun updateStoryTokens(storyId: String, tokensJson: String): Result<Unit> {
+    suspend fun updateStoryTokens(
+        storyId: String,
+        tokensJson: String,
+        activeMapId: String = "",
+    ): Result<Unit> {
         val path = "stories/$storyId"
         return try {
             requireUserId()
+            val cleanTokens = tokensJson.take(100_000)
             db.collection("stories").document(storyId).update(
                 mapOf(
-                    "mapTokensJson" to tokensJson.take(100_000),
+                    "mapTokensJson" to cleanTokens,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            if (activeMapId.isNotBlank()) {
+                try {
+                    db.collection("stories").document(storyId)
+                        .collection("saved_maps").document(activeMapId)
+                        .update(
+                            mapOf(
+                                "tokensJson" to cleanTokens,
+                                "updatedAt" to FieldValue.serverTimestamp(),
+                            )
+                        ).await()
+                } catch (_: Exception) {
+                    // Best-effort sync for token moves
+                }
+            }
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, path)
+            Result.failure(e)
+        }
+    }
+
+    fun observeSavedMaps(storyId: String, userId: String): Flow<List<SavedMap>> = flow {
+        if (storyId.isBlank() || userId.isBlank()) {
+            emit(emptyList())
+            return@flow
+        }
+        val path = "stories/$storyId/saved_maps"
+        emitAll(
+            db.collection("stories").document(storyId).collection("saved_maps")
+                .whereArrayContains("memberUids", userId)
+                .snapshots()
+                .map { snapshot ->
+                    snapshot.toObjects(
+                        SavedMap::class.java,
+                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                    ).sortedByDescending { it.updatedAt?.seconds ?: it.createdAt?.seconds ?: 0L }
+                }
+                .catch { error ->
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser?.uid == userId) {
+                        handleFirestoreError(exceptionToLog, OperationType.LIST, path)
+                    }
+                    throw error
+                }
+        )
+    }
+
+    suspend fun saveSavedMap(
+        story: Story,
+        savedMap: SavedMap,
+        activateOnBoard: Boolean = false,
+    ): Result<String> {
+        val isNew = savedMap.id.isBlank()
+        val mapId = savedMap.id.ifBlank {
+            "mp_${UUID.randomUUID().toString().replace("-", "").take(16)}"
+        }
+        val path = "stories/${story.id}/saved_maps/$mapId"
+        return try {
+            val uid = requireUserId()
+            check(uid == story.gmUserId) { "Only the Game Master can save maps." }
+            val cleanName = savedMap.name.trim().ifBlank { "Untitled Map" }.take(140)
+            val w = savedMap.width.coerceAtLeast(MAP_MIN_SIZE.toLong())
+            val h = savedMap.height.coerceAtLeast(MAP_MIN_SIZE.toLong())
+            val cleanGrid = savedMap.gridJson.take(900_000)
+            val cleanTokens = savedMap.tokensJson.take(100_000)
+            val cleanBg = savedMap.backgroundUrl?.take(400_000)
+            val cleanLocId = savedMap.linkedLocationId.trim().take(128)
+            val cleanLocTitle = savedMap.linkedLocationTitle.trim().take(140)
+            val docRef = db.collection("stories").document(story.id)
+                .collection("saved_maps").document(mapId)
+
+            if (isNew) {
+                val payload = buildMap<String, Any> {
+                    put("storyId", story.id)
+                    put("gmUserId", story.gmUserId)
+                    put("ownerId", uid)
+                    put("memberUids", story.memberUids.ifEmpty { listOf(uid) })
+                    put("name", cleanName)
+                    if (cleanLocId.isNotBlank()) put("linkedLocationId", cleanLocId)
+                    if (cleanLocTitle.isNotBlank()) put("linkedLocationTitle", cleanLocTitle)
+                    put("width", w)
+                    put("height", h)
+                    put("gridJson", cleanGrid)
+                    put("tokensJson", cleanTokens)
+                    cleanBg?.let { put("backgroundUrl", it) }
+                    put("createdAt", FieldValue.serverTimestamp())
+                    put("updatedAt", FieldValue.serverTimestamp())
+                }
+                docRef.set(payload).await()
+                appendLogInternal(
+                    storyId = story.id,
+                    gmUserId = story.gmUserId,
+                    memberUids = story.memberUids,
+                    actionType = "map",
+                    summary = "Saved map \"$cleanName\" (${w}x${h})",
+                )
+            } else {
+                val updates = mutableMapOf<String, Any?>(
+                    "name" to cleanName,
+                    "linkedLocationId" to cleanLocId,
+                    "linkedLocationTitle" to cleanLocTitle,
+                    "width" to w,
+                    "height" to h,
+                    "gridJson" to cleanGrid,
+                    "tokensJson" to cleanTokens,
+                    "backgroundUrl" to cleanBg,
+                    "memberUids" to story.memberUids.ifEmpty { savedMap.memberUids },
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+                docRef.update(updates).await()
+            }
+
+            if (cleanLocId.isNotBlank()) {
+                try {
+                    db.collection("stories").document(story.id)
+                        .collection("world_items").document(cleanLocId)
+                        .update(
+                            mapOf(
+                                "linkedMapId" to mapId,
+                                "updatedAt" to FieldValue.serverTimestamp(),
+                            )
+                        ).await()
+                } catch (_: Exception) {
+                    // Best-effort sync to location card
+                }
+            }
+
+            if (activateOnBoard || story.activeMapId == mapId) {
+                val boardUpdates = mutableMapOf<String, Any?>(
+                    "mapWidth" to w,
+                    "mapHeight" to h,
+                    "mapGridJson" to cleanGrid,
+                    "mapTokensJson" to cleanTokens,
+                    "mapBackgroundUrl" to cleanBg,
+                    "activeMapId" to mapId,
+                    "activeMapName" to cleanName,
+                    "activeLocationId" to cleanLocId,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+                db.collection("stories").document(story.id).update(boardUpdates).await()
+            }
+            Result.success(mapId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, if (isNew) OperationType.CREATE else OperationType.UPDATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun loadSavedMapAsActive(story: Story, savedMap: SavedMap): Result<Unit> {
+        val path = "stories/${story.id}"
+        return try {
+            val uid = requireUserId()
+            check(uid == story.gmUserId) { "Only the Game Master can switch maps." }
+            val w = savedMap.width.coerceAtLeast(MAP_MIN_SIZE.toLong())
+            val h = savedMap.height.coerceAtLeast(MAP_MIN_SIZE.toLong())
+            val updates = mutableMapOf<String, Any?>(
+                "mapWidth" to w,
+                "mapHeight" to h,
+                "mapGridJson" to savedMap.gridJson.take(900_000),
+                "mapTokensJson" to savedMap.tokensJson.take(100_000),
+                "mapBackgroundUrl" to savedMap.backgroundUrl?.take(400_000),
+                "activeMapId" to savedMap.id.take(128),
+                "activeMapName" to savedMap.name.take(140),
+                "activeLocationId" to savedMap.linkedLocationId.take(128),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            )
+            db.collection("stories").document(story.id).update(updates).await()
+            appendLogInternal(
+                storyId = story.id,
+                gmUserId = story.gmUserId,
+                memberUids = story.memberUids,
+                actionType = "map",
+                summary = "Loaded map \"${savedMap.name}\" (${w}x${h})",
+            )
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun startBlankActiveMap(
+        story: Story,
+        width: Int = MAP_DEFAULT_SIZE,
+        height: Int = MAP_DEFAULT_SIZE,
+    ): Result<Unit> {
+        val path = "stories/${story.id}"
+        return try {
+            val uid = requireUserId()
+            check(uid == story.gmUserId) { "Only the Game Master can reset the active board." }
+            val w = width.coerceAtLeast(MAP_MIN_SIZE).toLong()
+            val h = height.coerceAtLeast(MAP_MIN_SIZE).toLong()
+            db.collection("stories").document(story.id).update(
+                mapOf(
+                    "mapWidth" to w,
+                    "mapHeight" to h,
+                    "mapGridJson" to "{}",
+                    "mapTokensJson" to "[]",
+                    "mapBackgroundUrl" to null,
+                    "activeMapId" to "",
+                    "activeMapName" to "",
+                    "activeLocationId" to "",
                     "updatedAt" to FieldValue.serverTimestamp(),
                 )
             ).await()
@@ -364,6 +609,115 @@ class StoryRepository(
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.UPDATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun linkSavedMapToLocation(
+        story: Story,
+        mapId: String,
+        locationItem: WorldItem?,
+        previousLocationId: String = "",
+    ): Result<Unit> {
+        val path = "stories/${story.id}/saved_maps/$mapId"
+        return try {
+            val uid = requireUserId()
+            check(uid == story.gmUserId) { "Only the Game Master can link maps and locations." }
+            val locId = locationItem?.id?.take(128).orEmpty()
+            val locTitle = locationItem?.title?.take(140).orEmpty()
+            val batch = db.batch()
+            val mapRef = db.collection("stories").document(story.id)
+                .collection("saved_maps").document(mapId)
+            batch.update(
+                mapRef,
+                mapOf(
+                    "linkedLocationId" to locId,
+                    "linkedLocationTitle" to locTitle,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            )
+            if (previousLocationId.isNotBlank() && previousLocationId != locId) {
+                batch.update(
+                    db.collection("stories").document(story.id)
+                        .collection("world_items").document(previousLocationId),
+                    mapOf(
+                        "linkedMapId" to "",
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                    )
+                )
+            }
+            if (locId.isNotBlank()) {
+                batch.update(
+                    db.collection("stories").document(story.id)
+                        .collection("world_items").document(locId),
+                    mapOf(
+                        "linkedMapId" to mapId.take(128),
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                    )
+                )
+            }
+            if (story.activeMapId == mapId) {
+                batch.update(
+                    db.collection("stories").document(story.id),
+                    mapOf(
+                        "activeLocationId" to locId,
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                    )
+                )
+            }
+            batch.commit().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteSavedMap(story: Story, mapId: String): Result<Unit> {
+        val path = "stories/${story.id}/saved_maps/$mapId"
+        return try {
+            val uid = requireUserId()
+            check(uid == story.gmUserId) { "Only the Game Master can delete saved maps." }
+            val linkedItems = db.collection("stories").document(story.id)
+                .collection("world_items")
+                .whereArrayContains("memberUids", uid)
+                .get()
+                .await()
+            val batch = db.batch()
+            batch.delete(
+                db.collection("stories").document(story.id)
+                    .collection("saved_maps").document(mapId)
+            )
+            linkedItems.documents.forEach { doc ->
+                if (doc.getString("linkedMapId") == mapId) {
+                    batch.update(
+                        doc.reference,
+                        mapOf(
+                            "linkedMapId" to "",
+                            "updatedAt" to FieldValue.serverTimestamp(),
+                        )
+                    )
+                }
+            }
+            if (story.activeMapId == mapId) {
+                batch.update(
+                    db.collection("stories").document(story.id),
+                    mapOf(
+                        "activeMapId" to "",
+                        "activeMapName" to "",
+                        "activeLocationId" to "",
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                    )
+                )
+            }
+            batch.commit().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, path)
             Result.failure(e)
         }
     }
@@ -637,6 +991,7 @@ class StoryRepository(
                     item.imageUrl?.take(250_000)?.let { put("imageUrl", it) }
                     put("sortOrder", item.sortOrder.coerceIn(0L, 100_000L))
                     put("tagsJson", item.tagsJson.take(5000))
+                    if (item.linkedMapId.isNotBlank()) put("linkedMapId", item.linkedMapId.take(128))
                     put("createdAt", FieldValue.serverTimestamp())
                     put("updatedAt", FieldValue.serverTimestamp())
                 }
@@ -659,10 +1014,25 @@ class StoryRepository(
                     "imageUrl" to item.imageUrl?.take(250_000),
                     "sortOrder" to item.sortOrder.coerceIn(0L, 100_000L),
                     "tagsJson" to item.tagsJson.take(5000),
+                    "linkedMapId" to item.linkedMapId.take(128),
                     "memberUids" to story.memberUids.ifEmpty { item.memberUids },
                     "updatedAt" to FieldValue.serverTimestamp(),
                 )
                 docRef.update(updates).await()
+                if (item.category == "location" && item.linkedMapId.isNotBlank()) {
+                    try {
+                        db.collection("stories").document(story.id)
+                            .collection("saved_maps").document(item.linkedMapId)
+                            .update(
+                                mapOf(
+                                    "linkedLocationTitle" to cleanTitle.take(140),
+                                    "updatedAt" to FieldValue.serverTimestamp(),
+                                )
+                            ).await()
+                    } catch (_: Exception) {
+                        // Best-effort sync to linked SavedMap title
+                    }
+                }
             }
             Result.success(itemId)
         } catch (e: CancellationException) {
@@ -704,9 +1074,10 @@ class StoryRepository(
     suspend fun deleteWorldItems(story: Story, ids: List<String>): Result<Unit> {
         val path = "stories/${story.id}/world_items"
         return try {
-            requireUserId()
+            val uid = requireUserId()
             val cleanIds = ids.filter { it.isNotBlank() }.distinct()
             if (cleanIds.isEmpty()) return Result.success(Unit)
+            val idSet = cleanIds.toSet()
             cleanIds.chunked(450).forEach { chunk ->
                 val batch = db.batch()
                 chunk.forEach { id ->
@@ -716,6 +1087,42 @@ class StoryRepository(
                     )
                 }
                 batch.commit().await()
+            }
+            try {
+                val mapsSnap = db.collection("stories").document(story.id)
+                    .collection("saved_maps")
+                    .whereArrayContains("memberUids", uid)
+                    .get()
+                    .await()
+                val batch = db.batch()
+                var changed = false
+                mapsSnap.documents.forEach { doc ->
+                    val linkedLoc = doc.getString("linkedLocationId").orEmpty()
+                    if (linkedLoc in idSet) {
+                        batch.update(
+                            doc.reference,
+                            mapOf(
+                                "linkedLocationId" to "",
+                                "linkedLocationTitle" to "",
+                                "updatedAt" to FieldValue.serverTimestamp(),
+                            )
+                        )
+                        changed = true
+                    }
+                }
+                if (story.activeLocationId in idSet) {
+                    batch.update(
+                        db.collection("stories").document(story.id),
+                        mapOf(
+                            "activeLocationId" to "",
+                            "updatedAt" to FieldValue.serverTimestamp(),
+                        )
+                    )
+                    changed = true
+                }
+                if (changed) batch.commit().await()
+            } catch (_: Exception) {
+                // Best-effort cleanup of linked location references
             }
             Result.success(Unit)
         } catch (e: CancellationException) {

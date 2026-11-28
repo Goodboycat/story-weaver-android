@@ -80,8 +80,8 @@ fun MapSettingsDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var gridWidth by remember(initialWidth) { mutableIntStateOf(initialWidth.coerceIn(4, com.example.data.MAP_MAX_SIZE)) }
-    var gridHeight by remember(initialHeight) { mutableIntStateOf(initialHeight.coerceIn(4, com.example.data.MAP_MAX_SIZE)) }
+    var gridWidth by remember(initialWidth) { mutableIntStateOf(initialWidth.coerceAtLeast(com.example.data.MAP_MIN_SIZE)) }
+    var gridHeight by remember(initialHeight) { mutableIntStateOf(initialHeight.coerceAtLeast(com.example.data.MAP_MIN_SIZE)) }
     var layers by remember(initialLayers) { mutableStateOf(initialLayers) }
     var isProcessingImages by remember { mutableStateOf(false) }
     var imageStatusMsg by remember { mutableStateOf<String?>(null) }
@@ -162,19 +162,41 @@ fun MapSettingsDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Grid Size Section
-                Text("Grid Dimensions (4–30 tiles)", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                // Grid Size Section (Unrestricted)
+                Text("Grid Dimensions (Any Size ≥ 1)", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf(
+                        "12×12" to (12 to 12),
+                        "24×20" to (24 to 20),
+                        "40×32" to (40 to 32),
+                        "80×60" to (80 to 60),
+                        "120×100" to (120 to 100),
+                    ).forEach { (label, dims) ->
+                        OutlinedButton(
+                            onClick = {
+                                gridWidth = dims.first
+                                gridHeight = dims.second
+                            },
+                            modifier = Modifier.testTag("map_preset_${dims.first}x${dims.second}")
+                        ) {
+                            Text(label, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
 
                 GridDimensionStepper(
                     label = "Width (Columns)",
                     value = gridWidth,
-                    onChange = { gridWidth = it.coerceIn(4, com.example.data.MAP_MAX_SIZE) },
+                    onChange = { gridWidth = it.coerceAtLeast(com.example.data.MAP_MIN_SIZE) },
                     testTagPrefix = "map_width"
                 )
                 GridDimensionStepper(
                     label = "Height (Rows)",
                     value = gridHeight,
-                    onChange = { gridHeight = it.coerceIn(4, com.example.data.MAP_MAX_SIZE) },
+                    onChange = { gridHeight = it.coerceAtLeast(com.example.data.MAP_MIN_SIZE) },
                     testTagPrefix = "map_height"
                 )
 
@@ -410,7 +432,7 @@ fun MapSettingsDialog(
                                         },
                                         onPlus = {
                                             layers = layers.map {
-                                                if (it.id == layer.id) it.copy(widthCells = (it.widthCells + 1f).coerceAtMost(30f)) else it
+                                                if (it.id == layer.id) it.copy(widthCells = (it.widthCells + 1f)) else it
                                             }
                                         },
                                         modifier = Modifier.weight(1f)
@@ -425,7 +447,7 @@ fun MapSettingsDialog(
                                         },
                                         onPlus = {
                                             layers = layers.map {
-                                                if (it.id == layer.id) it.copy(heightCells = (it.heightCells + 1f).coerceAtMost(30f)) else it
+                                                if (it.id == layer.id) it.copy(heightCells = (it.heightCells + 1f)) else it
                                             }
                                         },
                                         modifier = Modifier.weight(1f)
@@ -479,42 +501,51 @@ private fun GridDimensionStepper(
     onChange: (Int) -> Unit,
     testTagPrefix: String,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    var textValue by remember(value) { mutableStateOf(value.toString()) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+            OutlinedButton(
+                onClick = { onChange((value - 10).coerceAtLeast(com.example.data.MAP_MIN_SIZE)) },
+                enabled = value > com.example.data.MAP_MIN_SIZE,
+                modifier = Modifier.testTag("${testTagPrefix}_minus10")
+            ) {
+                Text("-10", style = MaterialTheme.typography.labelSmall)
+            }
             IconButton(
-                onClick = { onChange(value - 1) },
-                enabled = value > 4,
+                onClick = { onChange((value - 1).coerceAtLeast(com.example.data.MAP_MIN_SIZE)) },
+                enabled = value > com.example.data.MAP_MIN_SIZE,
                 modifier = Modifier.size(36.dp).testTag("${testTagPrefix}_minus")
             ) {
                 Icon(Icons.Default.Remove, contentDescription = "Decrease $label", modifier = Modifier.size(16.dp))
             }
             OutlinedTextField(
-                value = value.toString(),
+                value = textValue,
                 onValueChange = { raw ->
-                    raw.filter { it.isDigit() }.toIntOrNull()?.let { onChange(it) }
+                    val digits = raw.filter { it.isDigit() }
+                    textValue = digits
+                    digits.toIntOrNull()?.takeIf { it >= com.example.data.MAP_MIN_SIZE }?.let { onChange(it) }
                 },
                 singleLine = true,
-                modifier = Modifier.width(64.dp).testTag("${testTagPrefix}_input")
+                modifier = Modifier.weight(1f).testTag("${testTagPrefix}_input")
             )
             IconButton(
                 onClick = { onChange(value + 1) },
-                enabled = value < 30,
                 modifier = Modifier.size(36.dp).testTag("${testTagPrefix}_plus")
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Increase $label", modifier = Modifier.size(16.dp))
             }
+            OutlinedButton(
+                onClick = { onChange(value + 10) },
+                modifier = Modifier.testTag("${testTagPrefix}_plus10")
+            ) {
+                Text("+10", style = MaterialTheme.typography.labelSmall)
+            }
         }
-        Slider(
-            value = value.toFloat(),
-            onValueChange = { onChange(it.roundToInt()) },
-            valueRange = 4f..com.example.data.MAP_MAX_SIZE.toFloat(),
-            steps = com.example.data.MAP_MAX_SIZE - 5
-        )
     }
 }
 

@@ -46,6 +46,9 @@ data class Story(
     val mapGridJson: String = "{}",
     val mapTokensJson: String = "[]",
     val mapBackgroundUrl: String? = null,
+    val activeMapId: String = "",
+    val activeMapName: String = "",
+    val activeLocationId: String = "",
     val guideProgressJson: String = "[]",
     val nextSessionAtMillis: Long = 0L,
     val nextSessionNote: String = "",
@@ -98,6 +101,27 @@ data class WorldItem(
     val imageUrl: String? = null,
     val sortOrder: Long = 0L,
     val tagsJson: String = "[]",
+    val linkedMapId: String = "",
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+)
+
+@Keep
+@IgnoreExtraProperties
+data class SavedMap(
+    @DocumentId val id: String = "",
+    val storyId: String = "",
+    val gmUserId: String = "",
+    val ownerId: String = "",
+    val memberUids: List<String> = emptyList(),
+    val name: String = "",
+    val linkedLocationId: String = "",
+    val linkedLocationTitle: String = "",
+    val width: Long = 12L,
+    val height: Long = 12L,
+    val gridJson: String = "{}",
+    val tokensJson: String = "[]",
+    val backgroundUrl: String? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 )
@@ -173,8 +197,9 @@ data class ActivityLog(
     @ServerTimestamp val createdAt: Timestamp? = null,
 )
 
-/** Largest map side in cells (was 30 before the tileset). */
-const val MAP_MAX_SIZE = 64
+/** Minimum and default map side in cells (no fixed upper cap; users and AI may size grids freely). */
+const val MAP_MIN_SIZE = 1
+const val MAP_DEFAULT_SIZE = 12
 
 // --- Local Structured JSON Sub-Models ---
 

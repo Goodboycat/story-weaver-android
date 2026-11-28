@@ -51,9 +51,13 @@ object MapMacroOps {
     /** Terrain per cell and cells holding a line / object, from the existing map plus the ops parsed so far. */
     private val ground = HashMap<Pair<Int, Int>, String>()
     private val blocked = HashSet<Pair<Int, Int>>()
+    private var maxGridW: Int = 2000
+    private var maxGridH: Int = 2000
 
     /** Call once before parsing a script. [grid] = the map being edited (null / empty when it is wiped first). */
-    fun begin(grid: Map<String, GridCell>?) {
+    fun begin(grid: Map<String, GridCell>?, maxWidth: Int = 2000, maxHeight: Int = 2000) {
+        maxGridW = maxWidth.coerceAtLeast(1)
+        maxGridH = maxHeight.coerceAtLeast(1)
         ground.clear()
         blocked.clear()
         val atlas = TileAtlas.peek()
@@ -79,7 +83,7 @@ object MapMacroOps {
                 .cells().filter { (x, y) -> (x - op.cx) * (x - op.cx) + (y - op.cy) * (y - op.cy) <= op.radius * op.radius })
             else -> return
         }
-        if (marker == null || pts.size > MAP_MAX_SIZE * MAP_MAX_SIZE) return
+        if (marker == null || pts.size > 500_000) return
         when {
             marker.startsWith(MapLayerMarker.TILE) -> {
                 val name = marker.removePrefix(MapLayerMarker.TILE)
@@ -110,10 +114,12 @@ object MapMacroOps {
     }
 
     private fun box(o: JSONObject): Box {
-        val ax = o.optInt("x1", o.optInt("x", 0)).coerceIn(0, MAP_MAX_SIZE - 1)
-        val ay = o.optInt("y1", o.optInt("y", 0)).coerceIn(0, MAP_MAX_SIZE - 1)
-        val bx = (if (o.has("x2")) o.optInt("x2", ax) else ax + o.optInt("w", o.optInt("width", 4)) - 1).coerceIn(0, MAP_MAX_SIZE - 1)
-        val by = (if (o.has("y2")) o.optInt("y2", ay) else ay + o.optInt("h", o.optInt("height", 4)) - 1).coerceIn(0, MAP_MAX_SIZE - 1)
+        val limX = (maxGridW - 1).coerceAtLeast(0)
+        val limY = (maxGridH - 1).coerceAtLeast(0)
+        val ax = o.optInt("x1", o.optInt("x", 0)).coerceIn(0, limX)
+        val ay = o.optInt("y1", o.optInt("y", 0)).coerceIn(0, limY)
+        val bx = (if (o.has("x2")) o.optInt("x2", ax) else ax + o.optInt("w", o.optInt("width", 4)) - 1).coerceIn(0, limX)
+        val by = (if (o.has("y2")) o.optInt("y2", ay) else ay + o.optInt("h", o.optInt("height", 4)) - 1).coerceIn(0, limY)
         return Box(min(ax, bx), min(ay, by), max(ax, bx), max(ay, by))
     }
 
@@ -315,7 +321,7 @@ object MapMacroOps {
             out += objs(obj("${k}_gate"), listOf(gx - 1 to b.y2 - 2))
             reserved += Box(gx - 2, b.y2 - 3, gx + 2, b.y2).cells()
         }
-        val want = o.optInt("count", o.optInt("buildings", 6)).coerceIn(0, 24)
+        val want = o.optInt("count", o.optInt("buildings", 6)).coerceIn(0, 64)
         val inner = Box(b.x1 + 1, b.y1 + 1, b.x2 - 1, b.y2 - 1)
         val spots = inner.cells().shuffled(rng)
         val roadSet = roadCells.toHashSet()

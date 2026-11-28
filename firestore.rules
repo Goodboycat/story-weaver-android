@@ -60,11 +60,14 @@ service cloud.firestore {
         isValidId(data.joinCode) && data.joinCode.size() >= 4 && data.joinCode.size() <= 20 &&
         data.gmUserId is string && data.gmUserId.size() >= 1 && data.gmUserId.size() <= 128 &&
         isValidMemberList(data.memberUids) &&
-        data.mapWidth is int && data.mapWidth >= 4 && data.mapWidth <= 30 &&
-        data.mapHeight is int && data.mapHeight >= 4 && data.mapHeight <= 30 &&
-        data.mapGridJson is string && data.mapGridJson.size() <= 450000 &&
+        data.mapWidth is int && data.mapWidth >= 1 &&
+        data.mapHeight is int && data.mapHeight >= 1 &&
+        data.mapGridJson is string && data.mapGridJson.size() <= 900000 &&
         data.mapTokensJson is string && data.mapTokensJson.size() <= 100000 &&
         (!('mapBackgroundUrl' in data) || data.mapBackgroundUrl == null || (data.mapBackgroundUrl is string && data.mapBackgroundUrl.size() <= 400000)) &&
+        (!('activeMapId' in data) || (data.activeMapId is string && data.activeMapId.size() <= 128)) &&
+        (!('activeMapName' in data) || (data.activeMapName is string && data.activeMapName.size() <= 140)) &&
+        (!('activeLocationId' in data) || (data.activeLocationId is string && data.activeLocationId.size() <= 128)) &&
         data.guideProgressJson is string && data.guideProgressJson.size() <= 50000 &&
         (!('nextSessionAtMillis' in data) || (data.nextSessionAtMillis is int && data.nextSessionAtMillis >= 0 && data.nextSessionAtMillis <= 4102444800000)) &&
         (!('nextSessionNote' in data) || (data.nextSessionNote is string && data.nextSessionNote.size() <= 120)) &&
@@ -111,6 +114,24 @@ service cloud.firestore {
         (!('imageUrl' in data) || data.imageUrl == null || (data.imageUrl is string && data.imageUrl.size() <= 250000)) &&
         data.sortOrder is int && data.sortOrder >= 0 && data.sortOrder <= 100000 &&
         data.tagsJson is string && data.tagsJson.size() <= 5000 &&
+        (!('linkedMapId' in data) || (data.linkedMapId is string && data.linkedMapId.size() <= 128)) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidSavedMap(data) {
+      return isValidId(data.storyId) &&
+        data.gmUserId is string && data.gmUserId.size() >= 1 && data.gmUserId.size() <= 128 &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        isValidMemberList(data.memberUids) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 140 &&
+        (!('linkedLocationId' in data) || (data.linkedLocationId is string && data.linkedLocationId.size() <= 128)) &&
+        (!('linkedLocationTitle' in data) || (data.linkedLocationTitle is string && data.linkedLocationTitle.size() <= 140)) &&
+        data.width is int && data.width >= 1 &&
+        data.height is int && data.height >= 1 &&
+        data.gridJson is string && data.gridJson.size() <= 900000 &&
+        data.tokensJson is string && data.tokensJson.size() <= 100000 &&
+        (!('backgroundUrl' in data) || data.backgroundUrl == null || (data.backgroundUrl is string && data.backgroundUrl.size() <= 400000)) &&
         isValidTimestamp(data.createdAt) &&
         isValidTimestamp(data.updatedAt);
     }
@@ -221,6 +242,7 @@ service cloud.firestore {
         incoming().keys().hasOnly([
           'title', 'description', 'systemName', 'joinCode', 'gmUserId', 'memberUids',
           'mapWidth', 'mapHeight', 'mapGridJson', 'mapTokensJson', 'mapBackgroundUrl',
+          'activeMapId', 'activeMapName', 'activeLocationId',
           'guideProgressJson', 'nextSessionAtMillis', 'nextSessionNote',
           'createdAt', 'updatedAt'
         ]);
@@ -237,8 +259,8 @@ service cloud.firestore {
             incoming().diff(existing()).affectedKeys().hasOnly([
               'title', 'description', 'systemName', 'memberUids',
               'mapWidth', 'mapHeight', 'mapGridJson', 'mapTokensJson',
-              'mapBackgroundUrl', 'guideProgressJson',
-              'nextSessionAtMillis', 'nextSessionNote', 'updatedAt'
+              'mapBackgroundUrl', 'activeMapId', 'activeMapName', 'activeLocationId',
+              'guideProgressJson', 'nextSessionAtMillis', 'nextSessionNote', 'updatedAt'
             ])
           ) ||
           (
@@ -323,7 +345,7 @@ service cloud.firestore {
           incoming().keys().hasOnly([
             'storyId', 'gmUserId', 'ownerId', 'memberUids', 'category', 'title',
             'subtitle', 'description', 'iconName', 'iconEmoji', 'imageUrl', 'sortOrder',
-            'tagsJson', 'createdAt', 'updatedAt'
+            'tagsJson', 'linkedMapId', 'createdAt', 'updatedAt'
           ]);
         allow update: if isSignedIn() &&
           isValidId(storyId) &&
@@ -336,9 +358,58 @@ service cloud.firestore {
           existing().gmUserId == request.auth.uid &&
           incoming().diff(existing()).affectedKeys().hasOnly([
             'category', 'title', 'subtitle', 'description', 'iconName',
-            'iconEmoji', 'imageUrl', 'sortOrder', 'tagsJson', 'memberUids', 'updatedAt'
+            'iconEmoji', 'imageUrl', 'sortOrder', 'tagsJson', 'linkedMapId', 'memberUids', 'updatedAt'
           ]);
         allow delete: if isSignedIn() && isValidId(storyId) && isValidId(itemId) && existing().gmUserId == request.auth.uid;
+      }
+
+      match /saved_maps/{mapId} {
+        allow get: if isSignedIn() && isValidId(storyId) && isValidId(mapId) && request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in existing().memberUids;
+        allow create: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(mapId) &&
+          isValidSavedMap(incoming()) &&
+          incoming().storyId == storyId &&
+          incoming().ownerId == request.auth.uid &&
+          incoming().gmUserId == request.auth.uid &&
+          request.auth.uid in incoming().memberUids &&
+          exists(/databases/$(database)/documents/stories/$(storyId)) &&
+          get(/databases/$(database)/documents/stories/$(storyId)).data.gmUserId == request.auth.uid &&
+          incoming().keys().hasAll([
+            'storyId', 'gmUserId', 'ownerId', 'memberUids', 'name',
+            'width', 'height', 'gridJson', 'tokensJson',
+            'createdAt', 'updatedAt'
+          ]) &&
+          incoming().keys().hasOnly([
+            'storyId', 'gmUserId', 'ownerId', 'memberUids', 'name',
+            'linkedLocationId', 'linkedLocationTitle',
+            'width', 'height', 'gridJson', 'tokensJson', 'backgroundUrl',
+            'createdAt', 'updatedAt'
+          ]);
+        allow update: if isSignedIn() &&
+          isValidId(storyId) &&
+          isValidId(mapId) &&
+          isValidSavedMap(incoming()) &&
+          incoming().storyId == existing().storyId &&
+          incoming().gmUserId == existing().gmUserId &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          (
+            (
+              existing().gmUserId == request.auth.uid &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'name', 'linkedLocationId', 'linkedLocationTitle',
+                'width', 'height', 'gridJson', 'tokensJson', 'backgroundUrl',
+                'memberUids', 'updatedAt'
+              ])
+            ) ||
+            (
+              request.auth.uid in existing().memberUids &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['tokensJson', 'updatedAt'])
+            )
+          );
+        allow delete: if isSignedIn() && isValidId(storyId) && isValidId(mapId) && existing().gmUserId == request.auth.uid;
       }
 
       match /rolls/{rollId} {

@@ -116,6 +116,7 @@ fun StoryViewScreen(
     val storyState by viewModel.storyState.collectAsStateWithLifecycle()
     val charactersState by viewModel.charactersState.collectAsStateWithLifecycle()
     val worldItemsState by viewModel.worldItemsState.collectAsStateWithLifecycle()
+    val savedMapsState by viewModel.savedMapsState.collectAsStateWithLifecycle()
     val rollsState by viewModel.rollsState.collectAsStateWithLifecycle()
     val messagesState by viewModel.messagesState.collectAsStateWithLifecycle()
     val logsState by viewModel.logsState.collectAsStateWithLifecycle()
@@ -194,6 +195,7 @@ fun StoryViewScreen(
 
     val characters = (charactersState as? UiState.Success)?.data ?: emptyList()
     val worldItems = (worldItemsState as? UiState.Success)?.data ?: emptyList()
+    val savedMaps = (savedMapsState as? UiState.Success)?.data ?: emptyList()
     val rolls = (rollsState as? UiState.Success)?.data ?: emptyList()
     val messages = (messagesState as? UiState.Success)?.data ?: emptyList()
     val logs = (logsState as? UiState.Success)?.data ?: emptyList()
@@ -433,6 +435,7 @@ fun StoryViewScreen(
                                             viewModel = viewModel,
                                             characters = characters,
                                             worldItems = worldItems,
+                                            savedMaps = savedMaps,
                                             messages = messages,
                                             pinnedCharacterIds = pinnedCharacterIds,
                                             logs = logs,
@@ -453,6 +456,10 @@ fun StoryViewScreen(
                                                     locationJumpTrigger++
                                                     selectedTabIndex = locIdx
                                                 }
+                                            },
+                                            onJumpToMapTab = {
+                                                val mapIdx = tabs.indexOfFirst { it.id == StoryTabId.MAP }
+                                                if (mapIdx >= 0) selectedTabIndex = mapIdx
                                             },
                                             onJumpToEntityTab = ::handleJumpToEntityTab,
                                             onOpenAiChat = { showAiChat = true },
@@ -510,6 +517,7 @@ fun StoryViewScreen(
                                         viewModel = viewModel,
                                         characters = characters,
                                         worldItems = worldItems,
+                                        savedMaps = savedMaps,
                                         messages = messages,
                                         pinnedCharacterIds = pinnedCharacterIds,
                                         logs = logs,
@@ -530,6 +538,10 @@ fun StoryViewScreen(
                                                 locationJumpTrigger++
                                                 selectedTabIndex = locIdx
                                             }
+                                        },
+                                        onJumpToMapTab = {
+                                            val mapIdx = tabs.indexOfFirst { it.id == StoryTabId.MAP }
+                                            if (mapIdx >= 0) selectedTabIndex = mapIdx
                                         },
                                         onJumpToEntityTab = ::handleJumpToEntityTab,
                                         onOpenAiChat = { showAiChat = true },
@@ -664,6 +676,7 @@ private fun StoryTabContent(
     viewModel: StoryViewModel,
     characters: List<com.example.data.Character>,
     worldItems: List<com.example.data.WorldItem>,
+    savedMaps: List<com.example.data.SavedMap>,
     messages: List<com.example.data.ChatMessage>,
     pinnedCharacterIds: Set<String>,
     logs: List<com.example.data.ActivityLog>,
@@ -678,6 +691,7 @@ private fun StoryTabContent(
     focusChatMessageId: String?,
     onConsumeFocusMessage: () -> Unit,
     onJumpToLocation: (String) -> Unit,
+    onJumpToMapTab: () -> Unit,
     onJumpToEntityTab: (String, String) -> Unit,
     onOpenAiChat: () -> Unit,
 ) {
@@ -848,6 +862,18 @@ private fun StoryTabContent(
             onResetAiState = { viewModel.resetAiState() },
             onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
             aiConfigActions = aiConfigActions,
+            savedMaps = savedMaps,
+            activeMapId = story.activeMapId,
+            onSaveLocationAndGenerateMap = { loc -> viewModel.saveWorldItem(story, loc, generateLocationMap = true) },
+            onOpenSavedMap = { map ->
+                viewModel.loadSavedMap(story, map) { onJumpToMapTab() }
+            },
+            onGenerateLocationMap = { loc ->
+                viewModel.generateAndLinkMapForLocation(story, loc, activateOnBoard = true)
+            },
+            onLinkLocationToMap = { map, loc ->
+                viewModel.linkSavedMapToLocation(story, map, loc)
+            },
         )
         StoryTabId.POWERS -> WorldListTab(
             story = story,
@@ -881,30 +907,54 @@ private fun StoryTabContent(
             onShareToChat = { item -> viewModel.shareEntityToChat(story, worldItemToEntityRef(item)) },
             aiConfigActions = aiConfigActions,
         )
-        StoryTabId.MAP -> GridMapTab(
-            story = story,
-            characters = characters,
-            quickAssets = quickAssets,
-            quickBlocks = quickBlocks,
-            currentUserId = viewModel.currentUserId,
-            isGmMode = isGmMode,
-            userSettings = userSettings,
-            aiMapState = aiMapState,
-            onSelectAiProvider = { viewModel.setAiProvider(it) },
-            onSelectAiModel = { viewModel.setAiModel(it) },
-            onSelectAiEndpointUrl = { viewModel.setAiEndpointUrl(it) },
-            onSelectAiApiKey = { viewModel.setAiApiKey(it) },
-            onClearAiMapError = { viewModel.clearAiMapError() },
-            onGenerateAiMap = { prompt, w, h, g, t, replace, tw, th, onApplied ->
-                viewModel.generateMapWithAi(story, prompt, w, h, g, t, replace, tw, th, onApplied)
-            },
-            onSyncMap = { w, h, g, t, bg, imm ->
-                viewModel.syncMapDebounced(story, w, h, g, t, bg, imm)
-            },
-            onAddQuickAsset = { viewModel.addQuickMapAsset(it) },
-            onAddQuickBlock = { viewModel.addQuickMapBlock(it) },
-            aiConfigActions = aiConfigActions,
-        )
+        StoryTabId.MAP -> {
+            val worldLocations = remember(worldItems) { worldItems.filter { it.category == "location" } }
+            GridMapTab(
+                story = story,
+                characters = characters,
+                quickAssets = quickAssets,
+                quickBlocks = quickBlocks,
+                currentUserId = viewModel.currentUserId,
+                isGmMode = isGmMode,
+                userSettings = userSettings,
+                aiMapState = aiMapState,
+                onSelectAiProvider = { viewModel.setAiProvider(it) },
+                onSelectAiModel = { viewModel.setAiModel(it) },
+                onSelectAiEndpointUrl = { viewModel.setAiEndpointUrl(it) },
+                onSelectAiApiKey = { viewModel.setAiApiKey(it) },
+                onClearAiMapError = { viewModel.clearAiMapError() },
+                onGenerateAiMap = { prompt, w, h, g, t, replace, tw, th, onApplied ->
+                    viewModel.generateMapWithAi(story, prompt, w, h, g, t, replace, tw, th, onApplied)
+                },
+                onSyncMap = { w, h, g, t, bg, imm ->
+                    viewModel.syncMapDebounced(story, w, h, g, t, bg, imm)
+                },
+                onAddQuickAsset = { viewModel.addQuickMapAsset(it) },
+                onAddQuickBlock = { viewModel.addQuickMapBlock(it) },
+                aiConfigActions = aiConfigActions,
+                savedMaps = savedMaps,
+                worldLocations = worldLocations,
+                onSaveMapToLibrary = { mapName, w, h, g, t, bg, linkedLoc, existingId ->
+                    viewModel.saveCurrentMapToLibrary(
+                        story = story,
+                        mapName = mapName,
+                        width = w,
+                        height = h,
+                        grid = g,
+                        tokens = t,
+                        backgroundUrl = bg,
+                        linkedLocation = linkedLoc,
+                        existingMapId = existingId,
+                    )
+                },
+                onLoadSavedMap = { map -> viewModel.loadSavedMap(story, map) },
+                onStartBlankMap = { w, h -> viewModel.startBlankMap(story, w, h) },
+                onRenameSavedMap = { map, name -> viewModel.renameSavedMap(story, map, name) },
+                onLinkMapToLocation = { map, loc -> viewModel.linkSavedMapToLocation(story, map, loc) },
+                onDeleteSavedMap = { map -> viewModel.deleteSavedMap(story, map) },
+                onJumpToLocation = onJumpToLocation,
+            )
+        }
         StoryTabId.ITEMS -> WorldListTab(
             story = story,
             category = "item",

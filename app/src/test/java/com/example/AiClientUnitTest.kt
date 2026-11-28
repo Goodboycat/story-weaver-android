@@ -218,7 +218,9 @@ class AiClientUnitTest {
         assertTrue(sys.contains("flood_fill"))
         assertTrue(sys.contains("scatter"))
         assertTrue(sys.contains("checker"))
+        assertTrue(sys.contains("biome"))
+        assertTrue(sys.contains("building"))
+        assertTrue(sys.contains("kingdom"))
         assertTrue(sys.contains("#RRGGBB"))
-        assertTrue(sys.contains("NEVER output the string \"null\""))
     }
 }

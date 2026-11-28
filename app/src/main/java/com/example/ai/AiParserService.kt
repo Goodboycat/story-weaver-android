@@ -136,7 +136,6 @@ object AiPromptTemplates {
     """.trimIndent()
 
     fun mapArchitectSystemPrompt(request: String? = null): String = buildString {
-        val max = com.example.data.MAP_MAX_SIZE
         appendLine("You are the Map Architect of Story Weaver: you build and edit GBA-style 16px tile maps for a tabletop RPG.")
         appendLine("You write an ordered JSON program of painting ops. Return ONLY one valid JSON object (no markdown, no commentary):")
         appendLine(
@@ -177,7 +176,7 @@ object AiPromptTemplates {
         appendLine("- erase: clears every layer of the cells in the box.")
         appendLine()
         appendLine("RULES:")
-        appendLine("- Grid: width and height 4..$max. Coordinates are 0-indexed, x right, y down. Stay inside the grid, including the full size of big objects.")
+        appendLine("- Grid: freely choose any positive integer \"width\" and \"height\" (there is NO 30x30 or fixed cap — match the scale of the place: e.g., 10x10–16x16 for a small interior/shrine, 18x14–32x26 for a tavern/camp/keep, 36x28–80x60+ for a city, sprawling dungeon, or region). Coordinates are 0-indexed, x right, y down. Stay inside 0..width-1 and 0..height-1, including the full size of big objects.")
         appendLine("- A cell has 3 layers: terrain, line, object. A new terrain replaces the whole cell; lines and objects stack on top of what is there.")
         appendLine("- Ops run in order. Layer order: ground -> liquid -> path terrain -> raised (cliff, forest, walls, roofs) -> lines (rivers, roads, fences, ramparts) -> objects -> tokens.")
         appendLine("- Use ONLY names from the catalogue below. Never numbers or tile indices. If nothing fits, pick the closest name.")
@@ -930,12 +929,23 @@ class AiParserService {
         apiKeyOverride: String = "",
     ): Result<MapPaintOutcome> = try {
         val sys = AiPromptTemplates.mapArchitectSystemPrompt(userPrompt)
-        val effectiveW = (targetWidth ?: currentWidth).coerceIn(4, com.example.data.MAP_MAX_SIZE)
-        val effectiveH = (targetHeight ?: currentHeight).coerceIn(4, com.example.data.MAP_MAX_SIZE)
+        val hasExplicitSize = targetWidth != null && targetHeight != null
         val modeInstruction = if (replaceEntireMap) {
-            "MODE: CREATE NEW MAP (set \"clearFirst\": true). Target size: ${effectiveW}x${effectiveH} (adjust width/height within 4..${com.example.data.MAP_MAX_SIZE} only if requested)."
+            if (hasExplicitSize) {
+                val reqW = targetWidth!!.coerceAtLeast(1)
+                val reqH = targetHeight!!.coerceAtLeast(1)
+                "MODE: CREATE NEW MAP (set \"clearFirst\": true). Requested grid size: ${reqW}x${reqH}."
+            } else {
+                "MODE: CREATE NEW MAP (set \"clearFirst\": true). Freely decide the ideal grid \"width\" and \"height\" for this place's scale (there is NO 30x30 or hardcoded cap — choose compact or expansive dimensions as needed)."
+            }
         } else {
-            "MODE: EDIT EXISTING MAP (set \"clearFirst\": false and modify/enhance existing tiles without wiping unrelated parts). Target size: ${effectiveW}x${effectiveH}."
+            if (hasExplicitSize) {
+                val reqW = targetWidth!!.coerceAtLeast(1)
+                val reqH = targetHeight!!.coerceAtLeast(1)
+                "MODE: EDIT EXISTING MAP (set \"clearFirst\": false and modify/enhance existing tiles without wiping unrelated parts). Resize target: ${reqW}x${reqH}."
+            } else {
+                "MODE: EDIT EXISTING MAP (set \"clearFirst\": false and modify/enhance existing tiles without wiping unrelated parts). Current size is ${currentWidth}x${currentHeight}; keep or resize freely if needed."
+            }
         }
         val mapSnapshot = MapPaintEngine.summarizeMapForPrompt(currentWidth, currentHeight, currentGrid, currentTokens)
         val fullUserPrompt = buildString {
@@ -944,8 +954,10 @@ class AiParserService {
                 appendLine("Setting: ${story.description}")
             }
             appendLine(modeInstruction)
-            appendLine()
-            appendLine(mapSnapshot)
+            if (!replaceEntireMap || hasExplicitSize) {
+                appendLine()
+                appendLine(mapSnapshot)
+            }
             appendLine()
             appendLine("USER MAP REQUEST:")
             appendLine(userPrompt.trim())
@@ -1010,6 +1022,44 @@ class AiParserService {
     } catch (e: Exception) {
         Log.e(TAG, "AI map generation failed", e)
         Result.failure(e)
+    }
+
+    suspend fun generateMapForLocationWithAi(
+        location: WorldItem,
+        story: Story,
+        ownerId: String,
+        provider: AiProvider,
+        modelName: String,
+        endpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
+        apiKeyOverride: String = "",
+    ): Result<MapPaintOutcome> {
+        val tags = JsonCodecs.decodeStringList(location.tagsJson)
+        val prompt = buildString {
+            append("Design a complete tabletop map for the location \"${location.title}\"")
+            if (location.subtitle.isNotBlank()) append(" (${location.subtitle})")
+            append(".")
+            if (tags.isNotEmpty()) append(" Themes/tags: ${tags.joinToString(", ")}.")
+            if (location.description.isNotBlank()) {
+                append(" Details: ${location.description.trim().take(1200)}")
+            }
+            append(" Choose whatever grid width and height best suit the scale and layout of this location.")
+        }
+        return generateMapWithAi(
+            userPrompt = prompt,
+            story = story,
+            ownerId = ownerId,
+            currentWidth = com.example.data.MAP_DEFAULT_SIZE,
+            currentHeight = com.example.data.MAP_DEFAULT_SIZE,
+            currentGrid = emptyMap(),
+            currentTokens = emptyList(),
+            replaceEntireMap = true,
+            targetWidth = null,
+            targetHeight = null,
+            provider = provider,
+            modelName = modelName,
+            endpointUrl = endpointUrl,
+            apiKeyOverride = apiKeyOverride,
+        )
     }
 
     private companion object {

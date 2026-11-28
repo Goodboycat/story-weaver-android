@@ -150,4 +150,68 @@ class CustomAiProviderTest {
         assertTrue(signedOut.customAiProviders.isEmpty())
         assertEquals("", signedOut.aiApiKey)
     }
+
+    @Test
+    fun `website provider API keys and models are saved per endpoint and reused when switching back`() = runBlocking {
+        val repo = PreferencesRepository(ApplicationProvider.getApplicationContext())
+        repo.setActiveUserId("user_keys_reuse")
+
+        val openaiUrl = "https://api.openai.com/v1/chat/completions"
+        val groqUrl = "https://api.groq.com/openai/v1/chat/completions"
+
+        // Save API key & model for OpenAI website endpoint
+        repo.setAiEndpointUrl(openaiUrl)
+        repo.setAiApiKey("sk-openai-saved")
+        repo.setAiModel("gpt-4o")
+
+        // Switch to Groq website endpoint (does NOT leak OpenAI key) and save Groq key & model
+        repo.setAiEndpointUrl(groqUrl)
+        val afterSwitchToGroq = repo.settingsFlow.first()
+        assertEquals(groqUrl, afterSwitchToGroq.aiEndpointUrl)
+        assertEquals("", afterSwitchToGroq.aiApiKey)
+        assertEquals("llama-3.3-70b-versatile", afterSwitchToGroq.aiModel)
+
+        repo.setAiApiKey("gsk-groq-saved")
+        repo.setAiModel("llama-3.1-8b-instant")
+
+        // Register a custom website provider and update its key inline
+        val myProxy = CustomAiProviderProfile(
+            id = "p_proxy",
+            name = "My Proxy",
+            endpointUrl = "https://proxy.example.com/v1/chat/completions",
+            apiKey = "sk-proxy-1",
+            selectedModel = "proxy-70b",
+            models = listOf("proxy-70b"),
+        )
+        repo.saveCustomAiProvider(myProxy, selectImmediately = true)
+        repo.setAiApiKey("sk-proxy-updated")
+
+        // Switching to OpenAI website endpoint again reuses its saved profile, key & model
+        repo.setAiEndpointUrl(openaiUrl)
+        val backToOpenAi = repo.settingsFlow.first()
+        assertNotNull(backToOpenAi.activeCustomProviderId)
+        assertEquals(openaiUrl, backToOpenAi.aiEndpointUrl)
+        assertEquals("sk-openai-saved", backToOpenAi.aiApiKey)
+        assertEquals("gpt-4o", backToOpenAi.aiModel)
+
+        // Switching to Groq reuses Groq's saved key & model
+        repo.setAiEndpointUrl(groqUrl)
+        val backToGroq = repo.settingsFlow.first()
+        assertEquals("gsk-groq-saved", backToGroq.aiApiKey)
+        assertEquals("llama-3.1-8b-instant", backToGroq.aiModel)
+
+        // Tapping My Proxy again reuses its intact endpoint URL and updated API key
+        repo.selectCustomAiProvider("p_proxy")
+        val backToProxy = repo.settingsFlow.first()
+        assertEquals("p_proxy", backToProxy.activeCustomProviderId)
+        assertEquals("https://proxy.example.com/v1/chat/completions", backToProxy.aiEndpointUrl)
+        assertEquals("sk-proxy-updated", backToProxy.aiApiKey)
+        assertEquals("proxy-70b", backToProxy.aiModel)
+
+        // Switching back to built-in Unorouter clears custom profile cleanly
+        repo.setAiEndpointUrl(AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT)
+        val backToUnorouter = repo.settingsFlow.first()
+        assertNull(backToUnorouter.activeCustomProviderId)
+        assertEquals(AiProvider.UNOROUTER, backToUnorouter.aiProvider)
+    }
 }
