@@ -99,9 +99,17 @@ object AiModelDefaults {
             host.contains("generativelanguage.googleapis.com") -> "Google AI"
             host.contains("fireworks.ai") -> "Fireworks"
             host.isNotBlank() -> {
-                val base = host.removePrefix("api.").removePrefix("www.")
-                    .substringBefore(".")
-                base.replaceFirstChar { it.uppercase() }.ifBlank { "Custom API" }
+                // Use the site's own name (the label before the public suffix), not a generic sub-domain:
+                // api.z.ai -> "Z", llm.chutes.ai -> "Chutes", inference.cerebras.co.uk -> "Cerebras", 192.168.1.5 -> the IP.
+                val labels = host.split('.').filter { it.isNotBlank() }
+                val isIp = labels.size == 4 && labels.all { it.toIntOrNull() != null }
+                val twoPartSuffix = labels.size >= 3 && labels[labels.size - 2] in setOf("co", "com", "org", "net", "ac", "gov", "edu")
+                val base = when {
+                    isIp || labels.size == 1 -> host
+                    twoPartSuffix -> labels[labels.size - 3]
+                    else -> labels[labels.size - 2]
+                }
+                base.replaceFirstChar { it.uppercase() }.ifBlank { host }
             }
             else -> "Custom API"
         }
@@ -208,8 +216,10 @@ object AiModelDefaults {
                     val id = obj.optString("id").trim().ifBlank { UUID.randomUUID().toString() }
                     val endpointUrl = obj.optString("endpointUrl").trim()
                     if (endpointUrl.isEmpty()) continue
+                    // Profiles saved by older builds were all called "Custom API"; show the website's name instead.
                     val name = obj.optString("name").trim()
-                        .ifBlank { inferProviderNameFromUrl(endpointUrl) }
+                        .takeUnless { it.isBlank() || it.equals("Custom API", true) || it.equals("Custom Endpoint", true) || it.equals("Custom", true) }
+                        ?: inferProviderNameFromUrl(endpointUrl)
                     val apiKey = obj.optString("apiKey").trim()
                     val selectedModel = obj.optString("selectedModel").trim()
                     val modelsArr = obj.optJSONArray("models")
