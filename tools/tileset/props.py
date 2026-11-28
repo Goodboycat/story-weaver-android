@@ -411,7 +411,111 @@ def part_village(A):
         o(n, c, solid=1)
     o('torch_wall', torch(True), solid=0); o('fence_gate_open', fence_gate(True), solid=0)
 
-PARTS = [part_nature, part_village]
+# ------------------------------------------------------------------ monuments (2c)
+MARBLE = '#d8d8e0'; DARKSTONE = '#4a4658'; MOSS = '#5fa04a'; RUNE = (120, 230, 250)
+
+def grave(kind='stone', col=STONE, moss=False):
+    c = C(); r = ramp(col)
+    if kind == 'cross': c.box(7, 2, 8, 13, col); c.box(4, 5, 11, 6, col)
+    elif kind == 'broken':
+        c.box(4, 8, 11, 13, col)
+        for x, y in ((4, 8), (5, 8), (6, 8), (4, 9), (10, 8), (11, 8), (11, 9), (8, 8)): c.clear(x, y)
+        c.line(7, 9, 6, 12, r[0]); c.box(12, 12, 14, 13, col); c.p(1, 13, r[2]); c.p(2, 13, r[1])
+    else:
+        c.box(4, 4, 11, 13, col); c.clear(4, 4); c.clear(11, 4); c.rect(5, 3, 10, 3, r[3])
+        for y, x1 in ((6, 9), (8, 8), (10, 9)): c.rect(6, y, x1, y, r[0])
+    if moss: cap(c, MOSS, 2, 4); px(c, ((4, 11), (5, 12), (4, 12)), ramp(MOSS)[2])
+    px(c, [(x, 14) for x in range(3, 13)], ramp('#7a5a3a')[2]); px(c, ((5, 14), (9, 14)), ramp('#7a5a3a')[1])
+    return fin(c, (15, 3, 12))
+
+def pedestal(c, col, y=23):
+    c.box(4, y, 11, y + 1, col); c.box(3, y + 2, 12, y + 6, col); c.rect(4, y + 4, 11, y + 4, ramp(col)[1])
+
+def statue(kind, col=STONE):
+    c = C(16, 32); r = ramp(col); pedestal(c, col)
+    if kind == 'broken':
+        c.box(5, 17, 7, 22, col); c.box(8, 19, 10, 22, col); c.p(5, 17, r[0]); c.clear(7, 17); c.ell(13, 28.5, 2, 1.6, col); px(c, ((1, 29), (2, 29)), r[2])
+        return fin(c, (30, 2, 13))
+    wide = kind in ('king', 'guardian')
+    c.box(4 if wide else 5, 11, 11 if wide else 10, 22, col); c.rect(7, 17, 8, 22, r[1]); c.ell(7.5, 7.5, 2.7, 2.9, col)
+    c.box(3, 12, 4, 17, col); c.box(11, 12, 12, 17, col); px(c, ((6, 7), (9, 7)), r[0])
+    if kind == 'knight':
+        c.rect(7, 11, 8, 21, r[4]); c.rect(5, 13, 10, 13, r[4]); c.rect(5, 6, 10, 6, r[1]); px(c, ((7, 3), (8, 3), (8, 4), (7, 4)), r[3])
+    elif kind == 'mage':
+        c.tri(7.5, 1, 5, 4, col); c.box(13, 4, 13, 22, col); c.ell(13, 3, 1.5, 1.5, RUNE, flat=True); c.rect(5, 20, 10, 22, r[3])
+    elif kind == 'king':
+        px(c, ((5, 3), (7, 3), (8, 3), (10, 3), (7, 2), (8, 2)), r[4]); c.rect(5, 4, 10, 4, r[4]); c.p(7, 1, hx(GOLD)); c.p(8, 1, hx(GOLD)); c.rect(4, 11, 11, 12, r[3]); c.box(13, 9, 13, 22, col); c.p(13, 8, r[4])
+    else:
+        c.ell(4.5, 16.5, 3, 4, col); c.p(4, 16, r[4]); c.p(5, 17, r[0]); c.rect(5, 5, 10, 5, r[1]); c.box(12, 5, 12, 22, col); px(c, ((12, 3), (12, 4), (11, 4), (13, 4)), r[4])
+    return fin(c, (30, 2, 13))
+
+def pillar(col=STONE, broken=False, vine=False):
+    c = C(16, 32); r = ramp(col); c.box(3, 27, 12, 29, col); c.box(4, 25, 11, 26, col); top = 15 if broken else 6
+    c.box(5, top, 10, 24, col)
+    for x in (7, 9): c.rect(x, top + 1, x, 24, r[1])
+    if broken:
+        for x, y in ((5, 15), (6, 15), (5, 16), (10, 15), (8, 15)): c.clear(x, y)
+        c.ell(13, 28, 2, 1.8, col); c.box(0, 28, 2, 29, col)
+    else: c.box(4, 4, 11, 5, col); c.box(3, 2, 12, 3, col)
+    if vine:
+        v = ramp(MOSS)
+        for i, y in enumerate(range(4, 28)): x = 5 + (i * 2 % 10 if (i // 5) % 2 == 0 else 9 - i * 2 % 10) % 6; c.p(x, y, v[2 + i % 2]); c.p(x + 1, y, v[1]) if i % 3 == 0 else None
+    return fin(c, (30, 2, 13))
+
+def obelisk(col=DARKSTONE, rune=RUNE):
+    c = C(16, 32); c.box(3, 26, 12, 29, col); c.box(5, 7, 10, 25, col); c.tri(7.5, 2, 6, 2.5, col)
+    for x, y in ((7, 10), (8, 10), (7, 12), (8, 14), (7, 15), (8, 15), (7, 18), (8, 19), (7, 21), (8, 22)): c.p(x, y, rune)
+    return fin(c, (30, 2, 13))
+
+def fountain(col=STONE, water='#3f8ae0'):
+    c = C(32, 32); w = ramp(water); c.ell(15.5, 22, 13.5, 7.5, col); c.ell(15.5, 20.5, 11, 5, water, flat=True)
+    for x, y in ((8, 20), (11, 23), (21, 22), (24, 19), (18, 24), (13, 18)): c.p(x, y, w[4]); c.p(x + 1, y, w[3])
+    c.box(14, 11, 17, 21, col); c.ell(15.5, 10, 6, 2.6, col); c.ell(15.5, 9.4, 4.4, 1.4, water, flat=True); c.box(15, 4, 16, 8, col)
+    for x, y in ((15, 3), (16, 2), (14, 4), (17, 4), (13, 6), (18, 6), (10, 12), (21, 12), (9, 15), (22, 15), (12, 9), (19, 9)): c.p(x, y, w[4])
+    for x, y in ((10, 13), (21, 13), (9, 16), (22, 16), (9, 17), (22, 17)): c.p(x, y, w[3])
+    return fin(c, (30, 4, 27))
+
+def shrine(roof='#b04a3a', col=STONE):
+    c = C(); c.box(3, 13, 12, 14, col); c.box(4, 7, 11, 12, col); c.rect(6, 9, 9, 12, (40, 32, 44)); c.p(7, 11, FIRE[0]); c.p(8, 12, FIRE[1]); c.p(7, 12, ICO['W'])
+    c.tri(7.5, 2, 6, 7, roof); c.rect(7, 1, 8, 1, GOLD and hx(GOLD))
+    return fin(c, (15, 2, 13))
+
+def menhir(col=STONE, rune=None, moss=False):
+    c = C(); c.ell(7.5, 8, 3.2, 6.2, col); c.box(5, 9, 10, 13, col); r = ramp(col); c.line(9, 4, 8, 9, r[1])
+    if rune: px(c, ((6, 6), (7, 6), (7, 7), (6, 9), (7, 10), (6, 10)), rune)
+    if moss: cap(c, MOSS, 2, 2)
+    return fin(c, (14, 3, 12))
+
+def stone_circle(col=STONE):
+    c = C(32, 32)
+    for i, (x, y) in enumerate(((13, 0), (2, 6), (23, 6), (0, 16), (26, 16), (6, 22), (20, 22))):
+        m = C(8, 10); m.ell(3, 4, 2.6, 4.2, col); m.box(1, 5, 5, 8, col); c.blit(m, x, y)
+    c.ell(15.5, 17, 4, 2.4, DARKSTONE, flat=True); px(c, ((14, 17), (16, 16), (17, 18)), RUNE)
+    return fin(c)
+
+def rubble(col=STONE, seed=0):
+    c = C()
+    for i, (x, y, rx, ry) in enumerate(((5, 11, 3.4, 2.6), (10.5, 11.5, 3, 2.2), (8, 8.5, 2.6, 2), (13, 13, 1.4, 1), (2, 13, 1.2, 0.9))):
+        c.ell(x + ri(i, 0, seed, 2), y, rx, ry, col)
+    c.box(4, 6, 6, 7, col)
+    return fin(c, (14, 2, 13))
+
+def part_monument(A):
+    A.section('props_monument'); o = lambda n, c, **m: A.obj(n, c, cat='monument', **m)
+    for n, c in (('grave_stone', grave()), ('grave_cross', grave('cross')), ('grave_broken', grave('broken')), ('grave_mossy', grave(moss=True)),
+                 ('grave_dark', grave(col=DARKSTONE)), ('grave_cross_wood', grave('cross', WOOD)),
+                 ('statue_knight', statue('knight')), ('statue_mage', statue('mage')), ('statue_king', statue('king', MARBLE)),
+                 ('statue_guardian', statue('guardian')), ('statue_broken', statue('broken')), ('statue_dark', statue('knight', DARKSTONE)),
+                 ('pillar_stone', pillar()), ('pillar_marble', pillar(MARBLE)), ('pillar_broken', pillar(broken=True)), ('pillar_dark', pillar(DARKSTONE)),
+                 ('pillar_vine', pillar(vine=True)), ('pillar_sand', pillar('#c8a070')), ('obelisk', obelisk()), ('obelisk_sand', obelisk('#c8a070', (90, 60, 40))),
+                 ('obelisk_ember', obelisk('#3a3038', (250, 140, 50))), ('fountain', fountain()), ('fountain_marble', fountain(MARBLE)),
+                 ('fountain_dry', fountain(STONE, '#6a6d78')), ('shrine', shrine()), ('shrine_blue', shrine('#4a6ab0', MARBLE)), ('shrine_moss', shrine('#4a8a4a', '#7a8a78')),
+                 ('standing_stone', menhir()), ('standing_stone_rune', menhir(DARKSTONE, RUNE)), ('standing_stone_mossy', menhir(moss=True)),
+                 ('stone_circle', stone_circle()), ('rubble', rubble()), ('rubble_dark', rubble(DARKSTONE, 1)), ('rubble_marble', rubble(MARBLE, 2)),
+                 ('rubble_sand', rubble('#c8a070', 3))):
+        o(n, c, solid=1)
+
+PARTS = [part_nature, part_village, part_monument]
 
 def build(A):
     for p in PARTS: p(A)

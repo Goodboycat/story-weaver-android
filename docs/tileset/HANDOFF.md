@@ -55,14 +55,14 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     `_closed`/`_open`, torch_stand, torch_wall, campfire_lit/out, lamp_post(_lit) 1x2, hay_bale, carts 2x1,
     fence_gate_closed/open, mailbox, bench, scarecrow 1x2, troughs, woodpile. New helpers in props.py: `px`
     (pixel list), `icon` (6x5 pixel-art glyph from `ICONS`), `flame`, `glow` (alpha halo, call AFTER `fin`).
+2c. Props / monument (`part_monument`, 35 objects, cat `monument`): graves x6, statues 1x2 (knight, mage, king,
+    guardian, broken, dark), pillars 1x2 (stone, marble, broken, dark, vine, sand), obelisks 1x2 x3, fountains 2x2
+    x3, shrines x3, standing stones x3, stone_circle 2x2, rubble x4. Shared colours: MARBLE, DARKSTONE, MOSS, RUNE.
 
 ## TODO (in order, one task per chat)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
 ### 2. Props (rest) - `props.py`, one `part_*` each
-- 2c. `part_monument` (cat `monument`): graves (stone, cross, broken, mossy), statues 1x2 (knight,
-  mage, king, angel-less "guardian", broken), pillars 1x2 (stone, marble, broken, dark, vine),
-  obelisk, fountain 2x2, shrine, standing stones, rubble piles.
 - 2d. `part_doors` (cat `door`): doors wood/iron/gold/dark x open+closed x N/E/S/W (S/N = front
   view, E/W = thin side view; W = flip of E), stairs up/down x 4 dirs (stone + wood), ladders
   up/down, trapdoor, windows (wood, stone, lit, barred, stained), archway.
