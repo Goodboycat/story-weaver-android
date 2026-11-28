@@ -43,4 +43,5 @@ except ImportError: pass
 m = render.render(img, at, W, H, ter, ln, objs, sps)
 Image.fromarray(m).resize((W * T * 2, H * T * 2), Image.NEAREST).convert('RGB').save(os.path.join(DOC, 'demo.png'))
 if objs: demo_extra.sheet(img, at, os.path.join(DOC, 'props.png'))
+if A.sprites: demo_extra.sprite_sheet(img, at, os.path.join(DOC, 'sprites.png'))
 print('tiles', A.count, 'sheet', img.shape[1], 'x', img.shape[0], 'terrains', len(A.terrains), 'lines', len(A.lines), 'objects', len(A.objects), 'sprites', len(A.sprites))

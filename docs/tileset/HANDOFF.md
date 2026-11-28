@@ -94,6 +94,17 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
 4x. Atlas packer is now shelf packing (one open shelf per block height) - master.png went from 1024x9648 to 1024x1184.
     Tile indices changed; nothing may hard-code an index, always look names up in atlas.json.
 
+5ab. People (`sprites.py`, 90 sprites, cat `people`): one row in `PEOPLE` = `H(skin, hair, hair_style, outfit, hat, item, **kw)` ->
+    `humanoid()` draws down / right / up, left = flipped right. hair styles short/long/pony/bun/spiky/fringe/bald; hats hood, wizard,
+    witch, helmet, horned, greathelm, crown, tiara, cap, feather, straw, bandana, circlet, turban, chef, tricorn, mask, antlers, leaf;
+    items sword, dagger, staff, spear, broom, hoe, trident, banner, bow, shield, axe, hammer, pick, book, lute, wand, basket, rod,
+    torch, mug, flask, club, orb, bag; kw: pants, belt, cape, apron, beard, ears (elf/cat/wolf/fox/rabbit/fin/crest), tusks, tail,
+    wings, snout, short (dwarf/child), skull, legs (legs/robe/fish/ghost), eye, glow, shoes. 44 human jobs (villager .. herald) + 46
+    races/factions (elf, dwarf, gnome, halfling, orc, goblin, beastfolk, lizardfolk, dragonborn, birdfolk, merfolk, fairy, dryad,
+    angel, skeleton, zombie, vampire, ghost, corrupted_knight, dark_mage, nomad, samurai...). A new person = one new row.
+    Review: `python3 tools/tileset/preview.py sprites[:<cat>] 5 16` -> `/tmp/preview_sprites.png`; `docs/tileset/sprites.png` = all.
+    Sprites may carry `w`/`h` (in tiles) in atlas.json for big creatures; missing = 1x1; the 4 directions sit side by side.
+
 ## TODO (in order, 2-3 lettered tasks per chat; push after each)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
@@ -101,10 +112,6 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 - (all props parts done; add more `part_*` only if a later task needs them)
 
 ### 5. People + creatures - `sprites.py` (new file, auto-called)
-- 5a. Parametric humanoid `humanoid(skin, hair, outfit, hat, item)` drawn down / right / up, left =
-  flip of right -> `atlas.sprite(name, [d, l, r, u], cat=..)`; add sprites to `demo_extra.get`
-  (second return value: `(name, x, y, dir)`) and to the contact sheet. First 20 classes/jobs.
-- 5b. 40 more humanoids: races (elf, dwarf, orc, beastfolk, merfolk, undead...) + jobs.
 - 5c. Creatures 1: ~40 (slime, wolf, bear, boar, spider, bat, rat, snake, skeleton, ghost, zombie...).
 - 5d. Creatures 2: ~40 (golem, dragon, wyvern, elemental, treant, kraken, griffin, corrupted
   knight...). No demons.
