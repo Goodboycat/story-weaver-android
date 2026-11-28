@@ -251,7 +251,16 @@ fun ChatTab(
 
         // Compact Voice + AI Bar (collapsible for more chat space)
         val roomSlug = "aistudio_rpg_${story.id}"
-        val roomUrl = "https://meet.jit.si/$roomSlug#config.startWithVideoMuted=true&config.startAudioOnly=true"
+        val roomUrl = "https://meet.jit.si/$roomSlug#config.startWithVideoMuted=true&config.startAudioOnly=true" +
+            "&config.disableDeepLinking=true&config.prejoinConfig.enabled=false"
+        var showVoiceRoom by remember { mutableStateOf(false) }
+        if (showVoiceRoom) {
+            com.example.ui.components.VoiceRoomDialog(
+                roomUrl = roomUrl,
+                title = strings.voiceRoom,
+                onDismiss = { showVoiceRoom = false }
+            )
+        }
 
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -351,8 +360,7 @@ fun ChatTab(
                         ) {
                             Button(
                                 onClick = {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(roomUrl))
-                                    runCatching { context.startActivity(intent) }
+                                    showVoiceRoom = true
                                 },
                                 modifier = Modifier.weight(1f).testTag("open_voice_room_button")
                             ) {

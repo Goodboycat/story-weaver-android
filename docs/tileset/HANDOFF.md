@@ -135,6 +135,13 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     replaced by wolf/boar in all 7 files. Known gaps: eraser removes the whole cell (no per-layer erase); quick blocks do not store
     tile brushes; multi-tile objects are not clipped at the map edge.
 
+A1. (non-tileset, owner request) AI provider settings: quick-select chips removed (dropdowns only); registered website
+    providers now listed in the "Website Provider" dropdown; `setAiEndpointUrl` switches to / creates ONE profile per
+    website (own key + own models) instead of rewriting the active profile; the build-secret key is never sent to a
+    non-Unorouter/OpenRouter host (`AiModelDefaults.isBuiltInHost`).
+A2. (non-tileset) Voice room is in-app: `ui/components/VoiceRoomDialog.kt` (Jitsi web client in a WebView, mic/camera
+    permissions in the manifest). Read `docs/VOICE_ROOM.md`.
+
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
@@ -157,6 +164,10 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 ### 8. Docs
 - 8a. `docs/tileset/AI_WORLD_GUIDE.md` (recipes: overworld route, town, interior, dungeon, kingdom,
   dimension) + short version embedded in the system prompt.
+
+### 10. Voice (after the tileset, or when the owner asks)
+- 10a. Phone screen share: swap the WebView for the native Jitsi Meet SDK - exact steps in `docs/VOICE_ROOM.md`.
+- 10b. Check on a device that A1/A2 behave (not device-tested; only CI-compiled).
 
 ### 9. Finish
 - 9a. Add palette-swap rows to the tables where coverage is thin (sheet is already > 2000 tiles).
