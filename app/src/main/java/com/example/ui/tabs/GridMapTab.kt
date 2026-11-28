@@ -1545,6 +1545,11 @@ fun GridMapTab(
             currentWidth = width,
             currentHeight = height,
             hasExistingTiles = grid.isNotEmpty(),
+            existingUnits = (
+                characters.map { it.name } +
+                    worldLocations.map { it.title } +
+                    savedMaps.map { it.linkedLocationTitle }
+                ).map { it.trim() }.filter { it.isNotBlank() }.distinct(),
             userSettings = userSettings,
             aiMapState = aiMapState,
             onSelectProvider = onSelectAiProvider,

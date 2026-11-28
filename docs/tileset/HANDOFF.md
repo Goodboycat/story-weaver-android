@@ -195,6 +195,11 @@ A8. 9d art polish (part 2): `stairs_*` have tapered side stringers (perspective)
       edit called `updatedList.first()` on a possibly empty AI answer -> now shows "AI returned no changes".
       Not a crash but watch: `x!!` on Compose `var` state inside lambdas (WorldListTab 356/559/626, EntitiesTab 333) is safe
       only because the lambda sits under an `if (x != null)`.
+    - 11f. `StoryViewModel.linkTokensToExistingUnits()`: AI map tokens whose label matches an existing character
+      (case-insensitive, letters/digits only, or prefix >= 4 chars) take that character's exact name, emoji, kind, ownerId.
+      Applied in `generateMapWithAi` and the location-map generator.
+    - 11g. `AiMapArchitectDialog(existingUnits=...)`: scrollable chip row "Use what you already made" (characters +
+      locations) above the prompt box; a tap appends `use existing "Name"` to the prompt. Fed from `GridMapTab`.
 
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
@@ -213,10 +218,6 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 - 11e. Reuse in the import / edit AI paths too: append `existingUnitsBlock(false)` in `parseCharactersWithAi`,
   `parseWorldItemsWithAi` (AiParserService) and pass the catalogue to `AiEditAssistService` (it is an `object`), so
   "import" does not duplicate a unit that already exists (match by name, case-insensitive -> update instead of add).
-- 11f. Map AI tokens: after the AI answers, snap each token `label` to an existing Character (case-insensitive name) and
-  copy its emoji / kind / ownerId so the token is really linked, not only named alike (`MapPaintJsonParser` / `MapPaintEngine`).
-- 11g. UI picker "Use existing": in `AiMapArchitectDialog` add chips of existing characters / locations that insert
-  `@Name` into the prompt (cheap, no model change).
 - 11i. Beta-test pass 2: long-name layouts (after 11b rows may grow: check `Row` siblings have `weight(1f)` so buttons
   are not pushed off-screen) in EntitiesTab, WorldListTab, GridMapTab saved-map list.
 - 11j. Beta-test pass 3: Map tab - undo after AI edit, resize with tokens outside the new bounds, eraser on empty cell,

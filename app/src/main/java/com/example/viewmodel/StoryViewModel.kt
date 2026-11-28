@@ -186,6 +186,32 @@ class StoryViewModel(
         aiParser.existingUnitsCatalog = AiParserService.buildExistingUnitsCatalog(chars, items, maps)
     }
 
+    /**
+     * Links AI-placed tokens to the units the user already created: a token whose label matches an existing
+     * character name (case-insensitive, emoji / punctuation ignored) takes that character's exact name, emoji,
+     * kind and owner, so the AI "uses" the existing unit instead of a look-alike.
+     */
+    private fun linkTokensToExistingUnits(outcome: MapPaintOutcome): MapPaintOutcome {
+        val chars = (charactersState.value as? UiState.Success)?.data.orEmpty().filter { it.name.isNotBlank() }
+        if (chars.isEmpty() || outcome.tokens.isEmpty()) return outcome
+        fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+        val byName = chars.associateBy { norm(it.name) }.filterKeys { it.isNotEmpty() }
+        val linked = outcome.tokens.map { token ->
+            val key = norm(token.label)
+            val match = byName[key]
+                ?: byName.entries.firstOrNull { (name, _) ->
+                    key.length >= 4 && name.length >= 4 && (name.startsWith(key) || key.startsWith(name))
+                }?.value
+            if (match == null) token else token.copy(
+                label = match.name,
+                emoji = match.avatarEmoji.ifBlank { token.emoji },
+                kind = match.kind.ifBlank { token.kind },
+                ownerId = match.ownerId.ifBlank { token.ownerId },
+            )
+        }
+        return outcome.copy(tokens = linked)
+    }
+
     init {
         viewModelScope.launch {
             preferencesRepository.setActiveUserId(currentUserId)
@@ -716,7 +742,7 @@ class StoryViewModel(
             endpointUrl = settings.aiEndpointUrl,
             apiKeyOverride = settings.aiApiKey,
         )
-        val outcome = result.getOrNull() ?: return null
+        val outcome = linkTokensToExistingUnits(result.getOrNull() ?: return null)
         val savedMap = SavedMap(
             id = locationItem.linkedMapId,
             storyId = story.id,
@@ -1472,7 +1498,7 @@ class StoryViewModel(
                 apiKeyOverride = settings.aiApiKey,
             ).onSuccess { outcome ->
                 _aiMapState.value = AiMapUiState.Idle
-                onApplied(outcome)
+                onApplied(linkTokensToExistingUnits(outcome))
             }.onFailure { err ->
                 _aiMapState.value = AiMapUiState.Error(
                     err.localizedMessage ?: "Failed to generate map with AI."

@@ -2,6 +2,7 @@ package com.example.ui.tabs
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -101,6 +102,8 @@ fun AiMapArchitectDialog(
     onClearError: () -> Unit,
     onDismiss: () -> Unit,
     aiConfigActions: com.example.ui.components.AiProviderConfigActions? = null,
+    /** Names of units the user already created (characters, locations); tapping one adds it to the prompt. */
+    existingUnits: List<String> = emptyList(),
 ) {
     var prompt by remember { mutableStateOf("") }
     var replaceEntireMap by remember { mutableStateOf(!hasExistingTiles) }
@@ -293,6 +296,31 @@ fun AiMapArchitectDialog(
                                     onClearError()
                                 },
                                 label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+                }
+
+                if (existingUnits.isNotEmpty()) {
+                    Text(
+                        text = "Use what you already made (tap to add, swipe sideways for more):",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .testTag("ai_map_existing_units"),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        existingUnits.take(60).forEach { unit ->
+                            androidx.compose.material3.AssistChip(
+                                onClick = {
+                                    val add = "use existing \"$unit\""
+                                    prompt = if (prompt.isBlank()) "Place and $add." else prompt.trimEnd() + " Also $add."
+                                },
+                                label = { Text(unit) },
                             )
                         }
                     }
