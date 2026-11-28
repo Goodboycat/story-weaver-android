@@ -163,6 +163,14 @@ A3. (non-tileset) Custom API profiles are named after their website (`inferProvi
     "Chutes"); stored profiles still called "Custom API" are renamed on load (`decodeCustomProviders`).
 8a. `docs/tileset/AI_WORLD_GUIDE.md` (ops table, layers, edit mode, recipes) + short recipes `GuidesContent.MAP_AI_RECIPES` in the prompt.
 
+A5. 9a palette swaps (tables only, no new code): +26 terrains (6 roofs orange/black/pink/teal/copper/moss, 6 forests bamboo/golden/
+    palm/ember/frost_pine/shadow, 6 cliffs snow_mountain/dark_mountain/moss/bone/ember/coral, 8 paths red_brick_road/white_road/
+    moss_road/marble_plaza/dark_plaza/ash_path/ice_path/wood_boardwalk), +18 lines (mud/ash/moss trails, acid/tar/blood streams,
+    bone/bamboo fences, moss/red_brick/marble ramparts, flower/snow hedges, bone_palisade, green/black runners, frost/nature
+    lines), +4 kingdoms (swamp, crystal, pirate, jungle; the app reads kingdoms from atlas.json, no Kotlin change). Sheet = 6830
+    tiles (1024x1808). New tool: `python3 tools/tileset/preview_terrain.py <terrain names...>` -> `/tmp/preview_terrain.png`.
+A6. 10c: the voice room now gets the player's display name (`ChatTab` passes `userDisplayName`).
+
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
@@ -175,13 +183,13 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 ### 10. Voice (after the tileset, or when the owner asks)
 - 10b. Device-test the native room (join from two phones, `...` -> Share screen). If `meet.jit.si` demands a moderator
   login, follow "If meet.jit.si gets annoying" in `docs/VOICE_ROOM.md` (owner steps, free).
-- 10c. Optional: pass the player's display name to `VoiceRoomNative.launch(context, room, displayName)` (now `null`).
 
 ### 9. Finish
 - 9c. Device-test the Map AI (needs the owner's phone; nothing more to code unless a test fails). If a keyword is missing
   from `CAT_WORDS` the AI just guesses a name and it is snapped - add the word.
-- 9a. Add palette-swap rows to the tables where coverage is thin (sheet is already > 2000 tiles).
-- 9b. Check the GitHub Actions APK build and fix what breaks.
+- 9d. Art polish from "Known art notes" below (pick 2-3 per chat: hydra necks, elemental arms, dwarven flat roofs,
+  stairs stringers, window_stained rosette). `jungle_temple` flat roof is also a plain slab (same fix as dwarven).
+- 9b. After every push check the GitHub Actions APK build (last 3 runs were green) and fix what breaks.
 
 ## Known art notes (fix when touching the file)
 - Creatures: `hydra_*` necks read as a trident (give heads a jaw + thicker necks); `elemental_*` read as a diamond gem (add arms /

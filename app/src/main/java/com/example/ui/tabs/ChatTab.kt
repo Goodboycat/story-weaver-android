@@ -362,7 +362,7 @@ fun ChatTab(
                             Button(
                                 onClick = {
                                     // Native room (screen share works); WebView room only if the SDK fails to start.
-                                    if (!com.example.ui.components.VoiceRoomNative.launch(voiceContext, roomSlug, null)) {
+                                    if (!com.example.ui.components.VoiceRoomNative.launch(voiceContext, roomSlug, userDisplayName)) {
                                         showVoiceRoom = true
                                     }
                                 },

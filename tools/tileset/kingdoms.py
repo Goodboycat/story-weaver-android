@@ -243,6 +243,10 @@ KINGDOMS = {
     'gnome': K('#c8a070', 'brick', '#b87333', 'gable', '#d8c060', '#5a4030', '#f0e080', '#3fa890', 'flat', chimney=1, chim='#b87333'),
     'dragon': K('#8a4a40', 'stone', '#c03028', 'pagoda', '#e8b830', '#4a2420', '#f8a040', '#e8b830', 'cone', ridge='spikes', base='#5a3030', light=(255, 170, 80)),
     'nomad': K('#d8c8a8', 'plaster', '#c86a3a', 'tent', '#3c6ad8', '#8a5a30', '#5a4a40', '#e8b830', 'tent', base='#a89070'),
+    'swamp': K('#7a8a60', 'log', '#5a7a3a', 'thatch', '#3a4a2a', '#4a3a26', '#c8f080', '#8ac040', 'cone', base='#4a5238', light=(190, 240, 130)),
+    'crystal': K('#d8e8f8', 'stone', '#8a6ae0', 'dome', '#58c8f0', '#4a5aa8', '#f0f8ff', '#b890f0', 'cone', arch=1, base='#a8b8e0', light=(190, 220, 255)),
+    'pirate': K('#b8905a', 'log', '#3a4a6a', 'gable', '#e8e0d0', '#5a3a26', '#f0c060', '#2a2a34', 'flat', chimney=1, base='#6a5038'),
+    'jungle': K('#c8b078', 'brick', '#3a8a48', 'pagoda', '#e8b830', '#6a4a2a', '#f0e090', '#e04a3a', 'flat', base='#8a7a50', temple='flat'),
     'dark': K('#4a4658', 'stone', '#2a2438', 'gable', '#8a3ac8', '#1e1a28', '#c060f0', '#6a2a9a', 'cone', ridge='spikes', base='#2e2a3a', light=(200, 110, 250)),
 }
 

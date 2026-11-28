@@ -105,6 +105,14 @@ stone_plaza tiles #C8C2B4 soft path i=0,r=0
 snow_path snow #B8C8D8 soft path s=5
 dark_road cobble #4A4458 soft path i=1,r=2,s=2
 gold_road brick #E0B040 soft path i=1,r=1
+red_brick_road brick #A84A3A soft path i=1,r=1,s=2
+white_road cobble #E4E0D8 soft path i=1,r=2,s=3
+moss_road cobble #7A9A6A soft path i=1,r=2,s=4
+marble_plaza tiles #ECE8F0 soft path i=0,r=0,s=2
+dark_plaza tiles #4A4658 soft path i=0,r=0,s=3
+ash_path dirt #6A6468 soft path s=6
+ice_path snow #A8DCF0 soft path s=7
+wood_boardwalk planks #B8844A soft path i=0,r=0
 water water #3F8FE0 sunk liquid
 shallow_water water #6AC0EA sunk liquid s=2
 deep_water deep #2A5CB8 soft liquid r=4
@@ -161,6 +169,12 @@ crystal_cliff crystal #8AD8EE raised cliff f=#4A98C8,fs=glow
 cloud_bank cloud #F0F6FF raised cliff f=#A8B8D8,h=4,fs=smooth,r=4
 floating_island grass #6AC060 raised cliff f=#7A6048,h=7,s=7
 mountain rock #A8A4AC raised cliff f=#6E6A78,h=7,s=6
+snow_mountain snow #EEF4FA raised cliff f=#7E8AA0,h=7,s=8
+dark_mountain rock #5A5468 raised cliff f=#3A3448,h=7,s=9
+moss_cliff moss #6A9A50 raised cliff f=#7A7468,s=4
+bone_cliff rock #E0D8C0 raised cliff f=#A89E88,s=10
+ember_cliff rock #6A3A30 raised cliff f=#3A2020,s=11,a=#F0701E
+coral_cliff rock #F08A90 raised cliff f=#B85A70,s=12
 forest canopy #3E9448 raised forest {TR}
 pine_forest pines #2E7A58 raised forest {TR},r=3
 jungle canopy #2A8A4E raised forest {TR},s=2
@@ -173,6 +187,12 @@ mushroom_forest canopy #C85A8A raised forest {TR},s=7,f=#E0D8C0
 fey_forest canopy #48C8B0 raised forest {TR},s=8,f=#6A5080
 crystal_forest crystal #B890F0 raised forest f=#6A4AA8,h=5,fs=glow,i=1
 kelp_forest canopy #2E8A7A raised forest {TR},s=9,f=#1E5A5A
+bamboo_forest pines #7AC050 raised forest {TR},r=3,s=4,f=#9AB060
+golden_forest canopy #E8C040 raised forest {TR},s=10
+palm_forest canopy #58B048 raised forest {TR},s=11,f=#B89060
+ember_forest canopy #C8402A raised forest {TR},s=12,f=#3A2A2A
+frost_pine_forest pines #8AB8D8 raised forest {TR},r=3,s=6,f=#5A6A88
+shadow_forest canopy #2E2A48 raised forest {TR},s=13,f=#1E1A28
 stone_wall slab #6A6874 raised wall {WL}brick,f=#9A98A4
 brick_wall flat #6A3A30 raised wall {WL}brick,f=#B8604A
 wood_wall flat #5A3E28 raised wall {WL}planks,f=#A8743E
@@ -205,6 +225,12 @@ roof_tile rooftile #D07A3A raised roof {RF}smooth,f=#F0E0B8
 roof_snow snow #E8F0F8 raised roof {RF}planks,f=#8A5E34,r=2
 roof_gold rooftile #E8B830 raised roof {RF}smooth,f=#F4F0E8
 roof_jade rooftile #3AA890 raised roof {RF}planks,f=#C8483A
+roof_orange shingles #E08A3A raised roof {RF}smooth,f=#E8DCC0
+roof_black shingles #34303E raised roof {RF}brick,f=#6A6878
+roof_pink shingles #E88AB0 raised roof {RF}smooth,f=#F4ECE8
+roof_teal rooftile #2F6A70 raised roof {RF}planks,f=#F0E8D8
+roof_copper rooftile #B87333 raised roof {RF}brick,f=#C8A070
+roof_moss thatch #6A9A48 raised roof {RF}planks,f=#8A6A44,r=2
 '''
 
 def build_terrains(atlas):
@@ -308,6 +334,24 @@ ley_line glow #5AD8F0 1
 corruption_vein glow #B43AE0 1
 lava_crack glow #F0701E 1
 fissure glow #2A2230 2
+mud_trail road #7A5A3C 3
+ash_trail road #6A6468 3
+moss_trail road #7A9A6A 3
+acid_stream river #8AD83A 3
+tar_stream river #2E2A34 3
+blood_stream river #B02A34 3
+bone_fence fence #E0D8C0 0
+bamboo_fence fence #8AB850 0
+moss_rampart wall #6A8A5A 4
+red_brick_rampart wall #A84A3A 4
+marble_rampart wall #ECE8F0 4
+flower_hedge hedge #D86AA0 4
+snow_hedge hedge #D8E8F0 4
+bone_palisade stakes #D8D0B8 3
+green_runner carpet #2F8A50 4 #E8C040
+black_runner carpet #2E2A38 4 #B8303A
+frost_line glow #C8F0FF 1
+nature_line glow #6AE06A 1
 '''
 
 def build_lines(atlas):
