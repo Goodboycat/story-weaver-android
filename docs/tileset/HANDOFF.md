@@ -171,6 +171,10 @@ A5. 9a palette swaps (tables only, no new code): +26 terrains (6 roofs orange/bl
     tiles (1024x1808). New tool: `python3 tools/tileset/preview_terrain.py <terrain names...>` -> `/tmp/preview_terrain.png`.
 A6. 10c: the voice room now gets the player's display name (`ChatTab` passes `userDisplayName`).
 
+A7. 9d art polish (part 1): `hydra_*` thicker necks + bigger heads with a jaw line; `elemental_*` = head + torso + two low arms
+    over the swirl tail (keep fists LOW: raised fists read as horns, which the no-demon rule forbids); `flat` roofs (dwarven,
+    jungle temple, pirate tower) get a skylight hatch + vent on buildings >= 20px wide.
+
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
@@ -187,15 +191,14 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 ### 9. Finish
 - 9c. Device-test the Map AI (needs the owner's phone; nothing more to code unless a test fails). If a keyword is missing
   from `CAT_WORDS` the AI just guesses a name and it is snapped - add the word.
-- 9d. Art polish from "Known art notes" below (pick 2-3 per chat: hydra necks, elemental arms, dwarven flat roofs,
-  stairs stringers, window_stained rosette). `jungle_temple` flat roof is also a plain slab (same fix as dwarven).
+- 9d. Art polish from "Known art notes" below (pick 2-3 per chat; left: stairs stringers, window_stained rosette,
+  trapdoor_open ladder, kraken side view, griffin/chimera to 2x2, castle side towers vs keep windows).
 - 9b. After every push check the GitHub Actions APK build (last 3 runs were green) and fix what breaks.
 
 ## Known art notes (fix when touching the file)
-- Creatures: `hydra_*` necks read as a trident (give heads a jaw + thicker necks); `elemental_*` read as a diamond gem (add arms /
-  swirl); `kraken` side views show two mantle lobes; `griffin`/`chimera` wings clutter the 16px body (could be promoted to 2x2);
+- Creatures: `kraken` side views show two mantle lobes; `griffin`/`chimera` wings clutter the 16px body (could be promoted to 2x2);
   `quad` side views of two neighbours touch nose-to-nose only in the preview sheet (not a bug).
-- Kingdoms: `dwarven_*` flat roofs are a large dark slab (add hatch/skylight detail); elven `leaf` roofs read as a bush -
+- Kingdoms: elven `leaf` roofs read as a bush -
   fine, but houses could use a visible trunk; `*_castle` side towers overlap the keep windows a little.
 - `stairs_*`: steps read as flat stripes; add a side stringer / perspective taper.
 - `window_stained`: centre rosette is hidden by the frame cross; `trapdoor_open` ladder is hard to read.

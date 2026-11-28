@@ -43,6 +43,10 @@ def roof(c, x0, y0, x1, y1, P, style, seed=0):
     elif style == 'flat':
         wall_tex(c, x0, y0 + 3, x1, y1, P['roof'], 'stone', seed)
         if n >= 10: c.rect(x0 + 2, y0 + 5, x1 - 2, y1 - 3, rp[1])
+        if n >= 10 and x1 - x0 >= 20:   # skylight hatch + vent so the slab is not empty
+            g = ramp(P['glass']); hx = x0 + 5 + seed % 3; hy = y0 + 6
+            c.rect(hx, hy, hx + 6, hy + 4, tr[1]); c.rect(hx + 1, hy + 1, hx + 5, hy + 3, g[2]); c.line(hx + 3, hy + 1, hx + 3, hy + 3, tr[1]); c.p(hx + 1, hy + 1, g[4])
+            vx = x1 - 8 - seed % 2; c.rect(vx, hy + 1, vx + 3, hy + 4, tr[2]); c.rect(vx, hy + 1, vx + 3, hy + 1, tr[4]); c.p(vx + 1, hy + 3, tr[0]); c.p(vx + 2, hy + 3, tr[0])
         for x in range(x0, x1 + 1):
             if ((x - x0) // 3) % 2 == 0:
                 for y in range(y0, y0 + 3): c.p(x, y, rp[4] if y == y0 else rp[1] if (x - x0) % 3 == 2 else rp[2])

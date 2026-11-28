@@ -106,9 +106,10 @@ def hydra(col, belly='d8d890', eye=REDE):
         c.ell(15.5, 22, 9, 6, rp)
         if d != 'u': c.ell(15.5 + s, 24, 5, 3, ramp(belly))
         for x0, x1, y1 in ((10, 4, 9), (21, 27, 9), (15.5, 15.5, 5)):
-            x1 = min(28, x1 + s); tl(c, x0, 19, x1, y1, rp, 2.2, 1.8); c.ell(x1, y1 - 1, 3, 2.5, rp)
-            if d == 'd': px(c, [(x1 - 1.5, y1 - 2), (x1 + 1.5, y1 - 2)], eye); c.rect(int(x1 - 1), y1 + 1, int(x1 + 1.5), y1 + 1, INK)
-            if d == 'r': c.p(x1 + 1, y1 - 2, eye); c.ell(x1 + 2.5, y1, 1.5, 1.2, rp)
+            x1 = min(27, x1 + s); tl(c, x0, 19, x1, y1, rp, 3.2, 2.6); c.ell(x1, y1 - 1, 3.6, 3, rp)
+            if d != 'u': c.ell(x1 + (2 if d == 'r' else 0), y1 + 1.5, 2.4, 1.6, rp)   # jaw / snout
+            if d == 'd': px(c, [(x1 - 1.5, y1 - 2), (x1 + 1.5, y1 - 2)], eye); c.rect(int(x1 - 1), y1 + 2, int(x1 + 1.5), y1 + 2, INK)
+            if d == 'r': c.p(x1 + 1, y1 - 2, eye); c.rect(int(x1 + 2), y1 + 2, int(x1 + 4), y1 + 2, INK)
         return c
     return _four(f)
 
@@ -119,11 +120,13 @@ def elemental(col, core='ffffff', rocks=None):
         for y in range(9, 15):
             w = (15 - y) * .7
             for x in range(int(8 - w), int(8 + w)): c.p(x + (y % 2 if y > 11 else 0), y, rp[1 + (x + y) % 3])
-        c.ell(2.5, 7, 1.5, 2, rp); c.ell(12.5, 7, 1.5, 2, rp); c.ell(7.5, 6, 4, 4.5, rp)
+        c.ell(7.5, 8, 4.5, 3, rp); c.ell(7.5, 4.5, 3, 3, rp)                      # torso + head (not one diamond blob)
+        for sx in (-1, 1):                                                        # arms hanging out to the sides, fists low (raised fists read as horns - keep them low)
+            ax = int(7.5 + sx * 4); bx = int(7.5 + sx * 6); c.line(ax, 7, bx, 8, rp[2]); c.line(ax, 8, bx, 9, rp[1]); c.ell(7.5 + sx * 6, 10, 1.5, 1.5, rp)
         px(c, [(7, 1), (4, 2), (11, 3)], rp[4])
         if rocks: r = ramp(rocks); px(c, [(4, 4), (5, 4), (10, 9), (11, 9), (6, 11), (3, 8)], r[1]); px(c, [(4, 3), (10, 8)], r[3])
-        if d == 'd': px(c, [(5, 5), (5, 6), (9, 5), (9, 6)], k); c.rect(6, 8, 8, 8, k)
-        if d == 'r': px(c, [(8, 5), (8, 6), (11, 5), (11, 6)], k)
+        if d == 'd': px(c, [(6, 4), (6, 5), (9, 4), (9, 5)], k); c.rect(6, 8, 9, 9, k)
+        if d == 'r': px(c, [(8, 4), (8, 5), (10, 4), (10, 5)], k)
         return c
     return _four(f)
 
