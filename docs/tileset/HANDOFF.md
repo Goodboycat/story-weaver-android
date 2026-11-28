@@ -200,6 +200,9 @@ A8. 9d art polish (part 2): `stairs_*` have tapered side stringers (perspective)
       Applied in `generateMapWithAi` and the location-map generator.
     - 11g. `AiMapArchitectDialog(existingUnits=...)`: scrollable chip row "Use what you already made" (characters +
       locations) above the prompt box; a tap appends `use existing "Name"` to the prompt. Fed from `GridMapTab`.
+    - 11i. Beta pass 2 (long names): list rows already give the name column `weight(1f)`, so buttons stay on screen.
+      Fixed-height top bars (story screen, character sheet) now switch to `titleSmall` + 2 lines for long names instead of
+      3 clipped lines; the Map "synced location" chip is capped at 170dp wide.
 
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
@@ -218,8 +221,6 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 - 11e. Reuse in the import / edit AI paths too: append `existingUnitsBlock(false)` in `parseCharactersWithAi`,
   `parseWorldItemsWithAi` (AiParserService) and pass the catalogue to `AiEditAssistService` (it is an `object`), so
   "import" does not duplicate a unit that already exists (match by name, case-insensitive -> update instead of add).
-- 11i. Beta-test pass 2: long-name layouts (after 11b rows may grow: check `Row` siblings have `weight(1f)` so buttons
-  are not pushed off-screen) in EntitiesTab, WorldListTab, GridMapTab saved-map list.
 - 11j. Beta-test pass 3: Map tab - undo after AI edit, resize with tokens outside the new bounds, eraser on empty cell,
   saved map load while painting. Read the code paths, fix bugs.
 - 11k. Move the hint string + new texts to `Localization.kt`.

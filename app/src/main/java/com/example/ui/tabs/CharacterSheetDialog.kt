@@ -246,7 +246,9 @@ fun CharacterSheetDialog(
                     title = {
                         Text(
                             text = name.ifBlank { "Character Sheet" },
-                            maxLines = 3,
+                            // Fixed-height top bar: long names use a smaller style on 2 lines instead of being cut.
+                            style = if (name.length > 18) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge,
+                            maxLines = if (name.length > 18) 2 else 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     },
