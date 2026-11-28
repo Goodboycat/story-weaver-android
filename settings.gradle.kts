@@ -19,6 +19,8 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
+    // Native Jitsi Meet SDK (voice room with phone screen share), see docs/VOICE_ROOM.md
+    maven { url = uri("https://github.com/jitsi/jitsi-maven-repository/raw/master/releases") }
   }
 }
 
