@@ -535,6 +535,9 @@ class Atlas:
             s.objects[name] = dict(i=s.place([canvas_or_tile], 1), w=1, h=1, **meta)
     def sprite(s, name, four, **meta):
         """four canvases: down, left, right, up"""
-        s.sprites[name] = dict(i=s.place([c.a for c in four], 4), **meta)
+        w, h = four[0].w // T, four[0].h // T
+        if w == 1 and h == 1: s.sprites[name] = dict(i=s.place([c.a for c in four], 4), **meta); return
+        tl = [c.a[j * T:(j + 1) * T, k * T:(k + 1) * T].copy() for j in range(h) for c in four for k in range(w)]
+        s.sprites[name] = dict(i=s.place(tl, 4 * w, h), w=w, h=h, **meta)
     def image(s):
         return np.concatenate(s.rows, 0)

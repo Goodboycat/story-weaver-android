@@ -114,15 +114,19 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     skull_floating/flaming, watcher_eye), `fowl` (6), `frog` (3), `turtle` (3), `fish` (6: .. piranha, eel, shark). Helpers `_four(fn)`
     (draw d/r/u, left = flip) and `_top(fn)` (draw facing down, rotate). Sheet is now 5214 tiles, 180 sprites.
 
+5d. Creatures 2 (`creatures2.py`, 62 sprites): BIG 2x2-tile sprites, cat `creature_big` (41): `brute` (golem_stone/iron/ice/lava/crystal/
+    moss/clay/gold/sand, living_statue, troll x3, cyclops, giant x3, yeti, corrupted_champion), `dragon` (red, green, blue, black, white,
+    gold, bone, crystal, wyvern x2), `treant` x5, `kraken` x2 (top view), `hydra` x3; plus 1x1 cat `creature` (21): elemental x8, griffin,
+    hippogriff, pegasus, unicorn, chimera (`winged` = quad + wings), mimic x3, gargoyle, phoenix, thunderbird, roc, ice_bird, living_armor x2.
+    Big sprite layout in atlas.json: `{i, w:2, h:2}`; direction d (0 down, 1 left, 2 right, 3 up) starts at tile `i + d*w`, rows continue
+    at `+64` (see `render.py` sprites loop and `Atlas.sprite`). Sprite x,y = TOP-LEFT tile. Sheet is now 5930 tiles, 242 sprites.
+    Review big ones: `python3 tools/tileset/preview.py sprites:creature_big 3 24`.
+
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
 ### 2. Props (rest) - `props.py`, one `part_*` each
 - (all props parts done; add more `part_*` only if a later task needs them)
-
-### 5. Creatures - `creatures.py`
-- 5d. Creatures 2: ~40 (golem, dragon, wyvern, elemental, treant, kraken, griffin, corrupted
-  knight...). No demons.
 
 ### 6. Kotlin
 - 6a. `data/TileAtlas.kt`: load `tileset/master.png` + `atlas.json` from assets once, cache Bitmap.
@@ -152,6 +156,9 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 - 9b. Check the GitHub Actions APK build and fix what breaks.
 
 ## Known art notes (fix when touching the file)
+- Creatures: `hydra_*` necks read as a trident (give heads a jaw + thicker necks); `elemental_*` read as a diamond gem (add arms /
+  swirl); `kraken` side views show two mantle lobes; `griffin`/`chimera` wings clutter the 16px body (could be promoted to 2x2);
+  `quad` side views of two neighbours touch nose-to-nose only in the preview sheet (not a bug).
 - Kingdoms: `dwarven_*` flat roofs are a large dark slab (add hatch/skylight detail); elven `leaf` roofs read as a bush -
   fine, but houses could use a visible trunk; `*_castle` side towers overlap the keep windows a little.
 - `tree_snowy` (pine): snow only shows on the top tier; widen the snow band on the lower tiers.

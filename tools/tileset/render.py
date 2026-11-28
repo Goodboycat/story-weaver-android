@@ -50,5 +50,8 @@ def render(img, atlas, W, H, terrain, lines=None, objects=(), sprites=(), defaul
         o = OB[name]
         for j in range(o['h']):
             for i in range(o['w']): over(out, tile(img, o['i'] + j * 64 + i), (x + i) * T, (y + j) * T)
-    for name, x, y, d in sprites: over(out, tile(img, atlas['sprites'][name]['i'] + d), x * T, y * T)
+    for name, x, y, d in sprites:   # x, y = top-left tile; big sprites (w, h > 1): direction d starts at i + d * w
+        o = atlas['sprites'][name]; w, h = o.get('w', 1), o.get('h', 1)
+        for j in range(h):
+            for k in range(w): over(out, tile(img, o['i'] + d * w + j * 64 + k), (x + k) * T, (y + j) * T)
     return out

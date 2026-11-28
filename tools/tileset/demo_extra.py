@@ -17,16 +17,17 @@ def get(A):
           ('wolf', 17, 21, 1), ('slime_green', 19, 19, 0), ('bat', 18, 24, 0), ('dragon_red', 36, 13, 0), ('golem_ice', 38, 17, 0), ('crab', 7, 7, 2)]
     return [w for w in want if w[0] in A.objects], [s for s in sp if s[0] in A.sprites]
 
-def sprite_sheet(img, at, path, per=6):
+def sprite_sheet(img, at, path, per=6, sc=3, cat=None):
     """every sprite, 4 directions each (down, left, right, up), atlas order; 3x scale -> docs/tileset/sprites.png"""
     sp = []; ter = {}; x = 0; y = 0; band = 1
     for n, o in at['sprites'].items():
+        if cat and o.get('cat') != cat: continue
         w, h = o.get('w', 1), o.get('h', 1)
         if x + w * 4 > per * 4: x = 0; y += band; band = 1
         sp += [(n, x + d * w, y, d) for d in range(4)]; x += w * 4; band = max(band, h)
     H = y + band; ter = {(i, j): 'grass' if (i // 4 + j) % 2 else 'path' for i in range(per * 4) for j in range(H)}
     m = render.render(img, at, per * 4, H, ter, {}, [], sp)
-    Image.fromarray(m).resize((per * 4 * T * 3, H * T * 3), Image.NEAREST).convert('RGB').save(path)
+    Image.fromarray(m).resize((per * 4 * T * sc, H * T * sc), Image.NEAREST).convert('RGB').save(path)
 
 def sheet(img, at, path, cols=40):
     """every object laid out on grass with its name order = atlas order; 3x scale"""
