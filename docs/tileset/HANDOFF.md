@@ -38,6 +38,7 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
   Helpers: `speck` (leaf noise), `cap` (snow/moss top), `thick` (thick line), `fin` (outline+shadow),
   `trunk`. Register with `A.obj(name, canvas, cat='..', solid=0|1)`; canvas size = multiples of 16.
 - `tools/tileset/kingdoms.py`  `KINGDOMS` table + `building()` generator (see DONE 3).
+- `tools/tileset/dims.py`  `DIMS` table + `special()` extras (see DONE 4).
 - `tools/tileset/preview.py`  `python3 tools/tileset/preview.py <cat> [scale] [cols]` -> `/tmp/preview_<cat>.png`:
   zoomed sheet of ONE category. Use this to review a new part (props.png is too small to judge).
 - `tools/tileset/demo_extra.py`  props placed on the demo map (`get`) + contact sheet of every
@@ -82,18 +83,20 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     Generator: `building(w, h, P, rs, wall_h, m, sign, cols, emblem)`; wall styles plaster/brick/stone/plank/log; roof styles
     gable/thatch/pagoda/flat/dome/ribdome/cone/tent/leaf; flags timber, chimney, snow, spots, ridge='spikes', arch.
     A new kingdom = one new row. Door of every building is bottom-centre. Sheet is now 4137 tiles, 626 objects.
+4. Dimensions (`dims.py`, 214 objects, cats `dim_<name>`): astral, void, feywild, shadow, dream, spirit, mirror, fire, water,
+    air, earth, mechanus, abyssal, underdark. One row in `DIMS` (energy colour, rock, rock top, portal frame) gives the shared
+    kit `<d>_portal` 1x2, `portal_small`, `float_rock` 2x2, `float_rock_small`, `spire` 1x2, `spire_small`, `orb`, `wisp`;
+    `special()` adds the extras: astral stars/comet/moon, void tear/shards, feywild giant flowers/fairy_ring/arch, shadow
+    tree/lantern, dream clouds/door/moon, spirit torii 2x2/lantern/wisps, mirror panes/shards, fire geyser/vent/obsidian,
+    water spout/bubbles/coral/shell, air clouds (1-3 wide)/whirlwind/arch, earth arch/geode/pillar, mechanus gears (1x1, 2x2),
+    boiler/piston/clock 1x2 and `mechanus_pipe_1..15` (NESW bitmask like line sets), abyssal corals/kelp 1x2/shells/clam_pearl/
+    wreck 3x2/anchor, underdark glowshrooms/glow_spire/arch. Sheet is now 4494 tiles, 840 objects.
 
 ## TODO (in order, 2-3 lettered tasks per chat; push after each)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
 ### 2. Props (rest) - `props.py`, one `part_*` each
 - (all props parts done; add more `part_*` only if a later task needs them)
-
-### 4. Dimensions - `props.py` `part_dimension_*` (cat `dim_<name>`)
-- 4a. Astral, Void, Feywild, Shadow, Dream, Spirit, Mirror: portals, floating rocks, star props,
-  crystal spires, cloud props.
-- 4b. Elemental Fire/Water/Air/Earth, Mechanus (gears, pipes), Abyssal Sea (coral, kelp, shells,
-  wreck), Underdark (glow fungi, stalagmites). Ground terrains for all already sit in TERRAINS.
 
 ### 5. People + creatures - `sprites.py` (new file, auto-called)
 - 5a. Parametric humanoid `humanoid(skin, hair, outfit, hat, item)` drawn down / right / up, left =
