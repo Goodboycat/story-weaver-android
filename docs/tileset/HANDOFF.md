@@ -150,6 +150,14 @@ A2. (non-tileset) Voice room is in-app: `ui/components/VoiceRoomDialog.kt` (Jits
     `parseSingleOp`, direct cells and token `sprite` (`AiMapTokenSpec.sprite` -> `MapToken.sprite`). `MapTileCatalog.promptGuide()`
     = catalogue grouped by cat (kingdom buildings compressed to `<kingdom>_<part>`). `mapArchitectSystemPrompt` rewritten around
     tile names (old `palettePromptGuide` no longer in the prompt). The atlas must be loaded before the AI call (GridMapTab does it).
+9c-code. (CI-compiled only) `MapMacroOps.begin(grid)` / `note(op)`: the parser records the ground + occupied cells of the map being
+    edited and of every earlier op, so a `biome` WITHOUT `terrains` only scatters props on what is already there (skips liquid /
+    wall / cliff / roof / forest / lines / objects). `kingdom` draws a road spur from every building door to the nearest road.
+    `MapTileCatalog.promptGuide(request)` sends only the object / sprite categories whose keywords are in the request
+    (`CAT_WORDS`, `DIM_ALIAS`; terrains, lines, nature, village, kingdoms always; unknown request = everything).
+    `parseScript(json, baseGrid)` is `@Synchronized` because `MapMacroOps` keeps that state in the object.
+A3. (non-tileset) Custom API profiles are named after their website (`inferProviderNameFromUrl`: api.z.ai -> "Z", llm.chutes.ai ->
+    "Chutes"); stored profiles still called "Custom API" are renamed on load (`decodeCustomProviders`).
 8a. `docs/tileset/AI_WORLD_GUIDE.md` (ops table, layers, edit mode, recipes) + short recipes `GuidesContent.MAP_AI_RECIPES` in the prompt.
 
 ## TODO (in order; push after each, then continue with the next)
@@ -166,8 +174,8 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 - 10b. Check on a device that A1/A2 behave (not device-tested; only CI-compiled).
 
 ### 9. Finish
-- 9c. Device-test the Map AI: the system prompt is now ~5k tokens (catalogue); if a cheap model truncates, send only the
-  categories that match the request. Make `biome` props respect terrain painted by earlier ops; put `kingdom` doors on roads.
+- 9c. Device-test the Map AI (needs the owner's phone; nothing more to code unless a test fails). If a keyword is missing
+  from `CAT_WORDS` the AI just guesses a name and it is snapped - add the word.
 - 9a. Add palette-swap rows to the tables where coverage is thin (sheet is already > 2000 tiles).
 - 9b. Check the GitHub Actions APK build and fix what breaks.
 
