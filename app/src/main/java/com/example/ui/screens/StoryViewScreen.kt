@@ -252,8 +252,9 @@ fun StoryViewScreen(
                     Column {
                         Text(
                             text = story?.title ?: "Campaign",
-                            style = MaterialTheme.typography.titleLarge,
-                            maxLines = 3,
+                            // The top bar has a fixed height: long titles drop to a smaller style and wrap to 2 lines.
+                            style = if ((story?.title?.length ?: 0) > 20) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge,
+                            maxLines = if ((story?.title?.length ?: 0) > 20) 2 else 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         if (story != null) {
