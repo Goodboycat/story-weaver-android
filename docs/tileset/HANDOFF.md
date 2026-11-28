@@ -63,14 +63,17 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     (s = outside face, n = inside face with crossbar, e/w = thin side view on that edge; closed = solid),
     `stairs_{stone,wood}_{up,down}_{n,e,s,w}` (opaque full-tile floor pieces, rotated), ladder_up/down,
     trapdoor(_open), windows x6 (wood, stone, lit, dark, barred, stained), archway 2x2 x3 (walk-through).
+2e. Props / furniture (`part_furniture`, 87 objects, cat `furniture`): bed_single/double_{red,blue,green,purple,white}
+    (1x2 / 2x2), table 2x1 (plain, cloth, dark, feast), table_round, table_small(_mug/_candle/_book/_orb),
+    chair_{n,e,s,w} + chair_cushion_*, stools, shelf_{jars,plates,books}, bookshelf 1x2 x5, counter_{wood,stone,dark}_{l,m,r}
+    (line-like: l + m.. + r), stove, fireplaces, thrones 1x2 x4, altars x3, anvil, forge_lit/out, cauldrons x4, looms,
+    rug_round_* 1x1 + rug_* 2x2 (solid=0, no outline), wardrobes, mirrors, barrel_rack 2x1, weapon_rack x3,
+    plant pots, bathtub 2x1. Shared colours: LINEN, RED, BLUE, GREEN, PURPLE, LIGHTWOOD, INK.
 
 ## TODO (in order, 2-3 lettered tasks per chat; push after each)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
 ### 2. Props (rest) - `props.py`, one `part_*` each
-- 2e. `part_furniture` (cat `furniture`): bed single/double (1x2, 2x2), table 2x1 + round, chair
-  x4 dirs, stool, shelf, bookshelf (1x2), counter (line-like 3 pieces), stove, fireplace, throne
-  (1x2), altar, anvil, forge, cauldron, loom, rug round, wardrobe, mirror, barrel rack, weapon rack.
 - 2f. `part_dungeon` (cat `dungeon`): spikes up/down, lever left/right, pressure plate up/down,
   cage, web corner x4 (rot), bones, skull pile, chains, portal (4 colours), rift, rune circle 2x2,
   brazier, sarcophagus 1x2, iron gate open/closed, crystal cluster, stalagmite.

@@ -600,7 +600,223 @@ def part_doors(A):
                  ('window_barred', window(STONE, 'barred')), ('window_stained', window(STONE, 'stained'))): o(n, c, solid=0)
     o('archway', archway(), solid=0); o('archway_vine', archway(vine=True), solid=0); o('archway_dark', archway(DARKSTONE), solid=0)
 
-PARTS = [part_nature, part_village, part_monument, part_doors]
+# ------------------------------------------------------------------ furniture (task 2e)
+LINEN = '#e8e4d8'; RED = '#b83a3a'; BLUE = '#3a62b8'; GREEN = '#3f8a4a'; PURPLE = '#7a4aa8'; LIGHTWOOD = '#a8703a'
+INK = (40, 28, 30)
+
+def bed(col=RED, double=False, wood=WOOD):
+    w = 32 if double else 16; c = C(w, 32); x1 = w - 3; r = ramp(col)
+    c.box(2, 3, x1, 28, wood); c.rect(3, 6, x1 - 1, 27, ramp(LINEN)[2]); c.box(2, 1, x1, 5, wood)
+    for x in ((4,), (4, 18))[double]: c.box(x, 7, x + (9 if double else 7), 11, LINEN)
+    c.box(3, 13, x1 - 1, 27, col); c.rect(3, 13, x1 - 1, 14, ramp(LINEN)[3]); c.rect(3, 15, x1 - 1, 15, r[4])
+    for x in range(5, x1 - 1, 4): c.p(x, 18 + (x % 3), r[1]); c.p(x + 1, 23 - (x % 2), r[3])
+    c.box(2, 27, x1, 29, wood)
+    return fin(c, (30, 3, x1 - 1))
+
+def table(wood=LIGHTWOOD, cloth=None):
+    c = C(32, 16); r = ramp(wood)
+    for x in (2, 27): c.box(x, 9, x + 2, 13, wood)
+    c.rect(2, 10, 29, 11, r[0]); c.box(1, 3, 30, 9, wood)
+    for x in (8, 16, 24): c.rect(x, 4, x, 8, r[1])
+    if cloth: c.box(9, 3, 22, 10, cloth); c.rect(10, 5, 21, 5, ramp(cloth)[4]); c.rect(10, 8, 21, 8, ramp(cloth)[4])
+    return fin(c, (14, 2, 29))
+
+def table_small(wood=LIGHTWOOD, item=None, rnd_=False):
+    c = C(); r = ramp(wood)
+    if rnd_: c.box(6, 9, 9, 13, wood); c.rect(4, 13, 11, 13, r[1]); c.ell(7.5, 6.5, 6.5, 4, wood); c.ell(7.5, 6, 5, 2.6, r[3:] + r[2:5], flat=True) if 0 else None
+    else:
+        for x in (2, 12): c.box(x, 9, x + 1, 13, wood)
+        c.box(1, 3, 14, 9, wood); c.rect(2, 10, 13, 10, r[0])
+    if item == 'mug': c.box(6, 3, 8, 6, '#c8a060'); c.p(9, 4, ramp('#c8a060')[1]); c.rect(6, 3, 8, 3, ICO['W'])
+    if item == 'candle': c.rect(7, 3, 8, 6, ICO['W']); c.p(7, 2, FIRE[1]); c.p(7, 1, FIRE[0])
+    if item == 'book': c.box(5, 4, 10, 7, BLUE); c.rect(6, 5, 9, 5, ICO['W'])
+    if item == 'orb': c.ell(7.5, 4, 2.6, 2.6, '#8ad0f0'); c.rect(6, 7, 9, 7, ramp(GOLD)[2])
+    return fin(c, (14, 2, 13))
+
+def chair(d='s', wood=LIGHTWOOD, seat=None):
+    c = C(); r = ramp(wood); st = seat or wood
+    if d in 'ew':
+        c.box(4, 2, 5, 13, wood); c.box(10, 10, 11, 13, wood); c.box(4, 8, 11, 10, st)
+        return fin(c, (14, 3, 12)) if d == 'e' else fin(c, (14, 3, 12)).flip()
+    for x in (4, 10): c.box(x, 11, x + 1, 13, wood)
+    if d == 's': c.box(4, 2, 11, 8, wood); c.rect(6, 4, 6, 7, r[0]); c.rect(9, 4, 9, 7, r[0]); c.box(4, 8, 11, 11, st)
+    else: c.box(4, 7, 11, 10, st); c.box(4, 3, 11, 11, wood); c.rect(6, 5, 6, 9, r[1]); c.rect(9, 5, 9, 9, r[1]); c.rect(4, 3, 11, 3, r[4])
+    return fin(c, (14, 3, 12))
+
+def stool(wood=LIGHTWOOD):
+    c = C(); thick(c, 5, 9, 4, 13, wood); thick(c, 9, 9, 10, 13, wood); c.ell(7.5, 8, 4.4, 2.4, wood)
+    return fin(c, (14, 4, 11))
+
+def shelf(kind='jars', wood=WOOD):
+    c = C(); r = ramp(wood); c.rect(1, 2, 14, 13, INK); c.box(1, 1, 14, 2, wood)
+    for y in (7, 13): c.rect(1, y, 14, y, r[3]); c.p(1, y, r[1]); c.p(14, y, r[1])
+    c.rect(1, 2, 1, 13, r[2]); c.rect(14, 2, 14, 13, r[1])
+    cols = (RED, BLUE, GREEN, GOLD, PURPLE)
+    for k, y in enumerate((6, 12)):
+        for i, x in enumerate(range(3, 13, 3 if kind != 'plates' else 4)):
+            b = ramp(cols[(i + k * 2) % 5])
+            if kind == 'jars': c.rect(x, y - 2, x + 1, y, b[2]); c.p(x, y - 2, b[4]); c.p(x, y - 3, ICO['W'])
+            elif kind == 'plates': c.ell(x + 0.5, y - 1.5, 1.6, 1.6, LINEN)
+            else: c.rect(x, y - 3 + (i % 2), x, y, b[2]); c.rect(x + 1, y - 2, x + 1, y, b[3])
+    return fin(c)
+
+def bookshelf(wood=WOOD, kind='books', seed=0):
+    c = C(16, 32); c.box(1, 2, 14, 29, wood); cols = (RED, BLUE, GREEN, GOLD, PURPLE, '#c8b080')
+    for y in (4, 10, 16, 22):
+        c.rect(3, y, 12, y + 4, INK)
+        for x in range(3, 13):
+            if kind == 'empty' or rnd(x, y, seed) < 0.1: continue
+            b = ramp(cols[ri(x, y, seed, 6)])
+            if kind == 'potions':
+                if x % 3 == 2: continue
+                c.rect(x, y + 2, x, y + 4, b[2 + x % 2]); c.p(x, y + 1, ICO['W']) if x % 3 == 0 else None
+            else: h = 3 + ri(x, y, seed + 1, 2); c.rect(x, y + 5 - h, x, y + 4, b[1 + x % 2 * 2]); c.p(x, y + 6 - h, b[4])
+    if kind == 'empty': thick(c, 4, 17, 8, 20, LINEN, 1); c.p(10, 26, ramp(GOLD)[2])
+    c.rect(2, 27, 13, 28, ramp(wood)[1])
+    return fin(c, (30, 2, 13))
+
+def counter(piece='m', wood=LIGHTWOOD, top='#d8c8a8'):
+    c = C(); x0 = 2 if piece != 'm' else 0; r = ramp(wood); t = ramp(top)
+    c.rect(x0, 7, 15, 13, r[2]); c.rect(x0, 13, 15, 13, r[1]); c.rect(x0, 8, 15, 8, r[0])
+    for x in range(x0 + 2, 16, 4): c.rect(x, 9, x, 12, r[1])
+    c.rect(x0, 3, 15, 6, t[3]); c.rect(x0, 3, 15, 3, t[4]); c.rect(x0, 7, 15, 7, t[1])
+    if piece != 'm': c.rect(x0, 4, x0, 13, r[3]); c.p(x0, 3, t[4])
+    c = fin(c, (14, x0, 15))
+    return c.flip() if piece == 'r' else c
+
+def stove():
+    c = C(); i = ramp(IRON); c.box(10, 0, 12, 4, '#5a5f6c'); c.box(2, 4, 13, 13, '#5a5f6c'); c.rect(2, 4, 13, 6, i[2]); c.rect(2, 4, 13, 4, i[4])
+    c.rect(4, 5, 6, 5, i[0]); c.rect(8, 5, 9, 5, i[0]); c.rect(4, 9, 11, 12, INK); c.rect(5, 10, 10, 12, FIRE[2]); px(c, ((6, 11), (8, 11), (9, 12), (7, 12)), FIRE[1]); c.p(7, 11, FIRE[0])
+    for x in (6, 9): c.rect(x, 9, x, 12, INK)
+    return fin(c, (14, 2, 13))
+
+def fireplace(lit=True, col=STONE):
+    c = C(); r = ramp(col); c.box(1, 3, 14, 13, col); c.box(0, 1, 15, 3, col)
+    px(c, ((2, 6), (3, 6), (12, 9), (13, 9), (2, 11), (12, 5), (3, 9)), r[1]); c.rect(4, 6, 11, 13, INK); px(c, ((4, 6), (11, 6)), r[1])
+    thick(c, 5, 13, 10, 12, DARKWOOD, 1); c.rect(5, 13, 10, 13, ramp(DARKWOOD)[2])
+    if lit: flame(c, 7, 12, 6); px(c, ((5, 12), (10, 12)), FIRE[2])
+    fin(c, (14, 1, 14))
+    if lit: glow(c, 7.5, 14, 3.2)
+    return c
+
+def throne(frame=GOLD, cush=RED):
+    c = C(16, 32); f = ramp(frame)
+    c.box(3, 3, 12, 22, frame); c.tri(7.5, 0, 3, 3, frame); px(c, ((3, 2), (12, 2), (3, 1), (12, 1)), f[3]); c.box(5, 6, 10, 18, cush); c.p(7, 2, ICO['R']); c.p(8, 2, ICO['R'])
+    c.box(2, 18, 13, 24, cush); c.rect(2, 23, 13, 24, f[1]); c.box(1, 15, 3, 25, frame); c.box(12, 15, 14, 25, frame); c.box(2, 25, 13, 28, frame)
+    return fin(c, (29, 2, 13))
+
+def altar(col=STONE, cloth=LINEN, trim=GOLD):
+    c = C(); c.box(2, 7, 13, 13, col); c.box(1, 5, 14, 7, cloth); c.rect(6, 5, 9, 10, ramp(cloth)[2]); c.rect(6, 10, 9, 10, ramp(trim)[2]); px(c, ((7, 7), (8, 7), (7, 8), (8, 8)), ramp(trim)[3])
+    for x in (3, 12): c.rect(x, 2, x, 4, ICO['W']); c.p(x, 1, FIRE[1]); c.p(x, 0, FIRE[0])
+    return fin(c, (14, 2, 13))
+
+def anvil():
+    c = C(); i = ramp('#5a6070'); c.rect(3, 12, 12, 13, i[1]); c.rect(5, 9, 10, 11, i[2]); c.rect(3, 5, 13, 8, i[2]); c.rect(3, 5, 13, 5, i[4]); c.rect(0, 6, 2, 7, i[3]); c.p(0, 7, None)
+    c.clear(0, 7); c.rect(3, 8, 13, 8, i[0]); c.rect(6, 9, 6, 11, i[3]); c.rect(3, 12, 12, 12, i[3])
+    return fin(c, (14, 3, 12))
+
+def forge(lit=True):
+    c = C(); r = ramp(STONE); c.box(1, 5, 14, 13, STONE); c.box(4, 0, 11, 3, DARKSTONE); c.rect(5, 4, 10, 4, INK)
+    c.rect(3, 6, 12, 9, INK); px(c, ((2, 11), (6, 12), (11, 11), (13, 12), (8, 11)), r[1])
+    for x in range(3, 13): c.p(x, 9 - (x % 2), FIRE[2] if lit else (70, 60, 66)); c.p(x, 9, FIRE[1] if lit and x % 3 else (90, 40, 40))
+    if lit: px(c, ((5, 7), (8, 7), (10, 8)), FIRE[0])
+    fin(c, (14, 1, 14))
+    if lit: glow(c, 7.5, 4.5, 2.5)
+    return c
+
+def cauldron(liq='#58c048'):
+    c = C(); b = '#3a3d48'; c.rect(4, 13, 5, 13, ramp(b)[1]); c.rect(10, 13, 11, 13, ramp(b)[1]); c.ell(7.5, 9, 5.6, 4.4, b); c.box(2, 4, 13, 6, b)
+    c.rect(3, 5, 12, 5, ramp(liq)[2]); c.rect(4, 4, 11, 4, ramp(liq)[3]); px(c, ((5, 4), (9, 5)), ramp(liq)[4]); px(c, ((6, 2), (10, 1)), ramp(liq)[4])
+    return fin(c, (14, 3, 12))
+
+def loom(col=BLUE):
+    c = C(); r = ramp(col)
+    for x in range(4, 12): c.rect(x, 3, x, 12, ICO['W'] if x % 2 else (190, 186, 176))
+    c.rect(4, 8, 11, 12, r[2]); px(c, [(x, y) for x in range(4, 12) for y in range(8, 13) if (x + y) % 3 == 0], r[4]); c.rect(4, 8, 11, 8, r[1])
+    c.box(2, 1, 3, 13, WOOD); c.box(12, 1, 13, 13, WOOD); c.box(1, 1, 14, 2, WOOD); c.box(1, 12, 14, 13, WOOD)
+    return fin(c, (14, 1, 14))
+
+def rug(col=RED, rnd_=True, trim=GOLD):
+    w = 16 if rnd_ else 32; c = C(w, w); r = ramp(col); t = ramp(trim)
+    if rnd_: c.ell(7.5, 7.5, 7.4, 6.4, r[1:2] * 5, flat=True); c.ell(7.5, 7.5, 6.2, 5.2, t[2:3] * 5, flat=True); c.ell(7.5, 7.5, 5.2, 4.2, r[2:3] * 5, flat=True); c.ell(7.5, 7.5, 2.2, 1.6, t[3:4] * 5, flat=True)
+    else:
+        c.rect(2, 3, 29, 28, r[1]); c.rect(3, 4, 28, 27, t[2]); c.rect(4, 5, 27, 26, r[2]); c.rect(7, 8, 24, 23, r[3]); c.rect(8, 9, 23, 22, r[2])
+        for k in range(6): c.rect(15 - k, 10 + k, 16 + k, 10 + k, t[3]); c.rect(15 - k, 21 - k, 16 + k, 21 - k, t[3])
+        c.rect(13, 14, 18, 17, r[1])
+        for y in range(3, 29, 2): c.p(1, y, t[3]); c.p(30, y, t[3])
+    return c
+
+def wardrobe(wood=WOOD):
+    c = C(16, 32); r = ramp(wood); c.box(1, 4, 14, 29, wood); c.box(0, 2, 15, 4, wood)
+    for x in (2, 8): c.box(x, 6, x + 5, 25, r[1:] + r[4:]); c.rect(x + 1, 8, x + 4, 14, r[1]); c.rect(x + 1, 17, x + 4, 23, r[1])
+    px(c, ((6, 16), (9, 16)), ramp(GOLD)[3]); c.rect(1, 27, 14, 27, r[0])
+    return fin(c, (30, 1, 14))
+
+def mirror(tall=False, frame=GOLD):
+    c = C(16, 32 if tall else 16); g = '#a8d8f0'; G = ramp(g)
+    if tall:
+        c.box(4, 27, 11, 29, frame); c.box(7, 24, 8, 27, frame); c.ell(7.5, 13, 5.6, 11, frame); c.ell(7.5, 13, 4.2, 9.6, G[2:3] * 5, flat=True)
+        for k in range(5): c.p(5 + k, 12 - k, G[4]); c.p(7 + k, 17 - k, G[4]); c.p(6 + k, 20 - k, G[3])
+        return fin(c, (30, 3, 12))
+    c.ell(7.5, 7.5, 5.6, 6.6, frame); c.ell(7.5, 7.5, 4.2, 5.2, G[2:3] * 5, flat=True)
+    for k in range(4): c.p(5 + k, 8 - k, G[4]); c.p(7 + k, 10 - k, G[4])
+    return fin(c)
+
+def barrel_rack():
+    c = C(32, 16); w = '#9a6238'; r = ramp(w)
+    c.box(1, 12, 30, 13, DARKWOOD)
+    for cx in (6.5, 15.5, 24.5):
+        c.ell(cx, 7, 4.6, 4.6, w); c.ell(cx, 7, 3, 3, r[3:4] * 5, flat=True); c.ell(cx, 7, 1.2, 1.2, r[1:2] * 5, flat=True); c.p(int(cx + 0.5), 10, INK)
+        px(c, ((int(cx - 4), 12), (int(cx + 5), 12)), ramp(DARKWOOD)[4])
+    return fin(c, (14, 2, 29))
+
+def weapon_rack(kind='swords'):
+    c = C(); i = ramp(IRON); g = ramp(GOLD); lw = ramp(LIGHTWOOD)
+    c.box(0, 11, 15, 13, WOOD); c.box(0, 5, 1, 13, WOOD); c.box(14, 5, 15, 13, WOOD); c.rect(2, 6, 13, 6, ramp(WOOD)[1])
+    for k, x in enumerate((3, 7, 11)):
+        if kind == 'swords' or (kind == 'mixed' and k == 0):
+            c.rect(x, 1, x + 1, 8, i[3]); c.rect(x + 1, 1, x + 1, 8, i[1]); c.p(x, 0, i[4]); c.rect(x - 1, 8, x + 2, 8, g[2]); c.rect(x, 9, x + 1, 10, (60, 40, 36))
+        elif kind == 'spears' or k == 1:
+            c.rect(x, 3, x + 1, 10, lw[2]); c.rect(x + 1, 3, x + 1, 10, lw[1]); c.rect(x, 0, x + 1, 2, i[4]); c.p(x - 1, 2, i[2]); c.p(x + 2, 2, i[2]); c.p(x + 1, 0, i[2])
+        else:
+            c.rect(x, 2, x, 10, lw[2]); c.rect(x - 1, 1, x + 2, 4, i[3]); c.rect(x + 2, 0, x + 2, 5, i[4]); c.rect(x - 1, 4, x + 2, 4, i[1])
+    return fin(c, (14, 1, 14))
+
+def plant_pot(leaf='#3f9a3f', flower=None):
+    c = C(); c.box(5, 9, 10, 13, '#b8683a'); c.rect(5, 9, 10, 9, ramp('#b8683a')[4]); c.ell(7.5, 5.5, 4.6, 4, leaf); speck(c, leaf, 3, 0.2)
+    if flower: px(c, ((5, 4), (9, 3), (7, 6), (10, 6)), ramp(flower)[3])
+    return fin(c, (14, 4, 11))
+
+def bathtub():
+    c = C(32, 16); c.box(2, 5, 29, 12, LINEN); c.rect(4, 6, 27, 9, ramp('#58a8e0')[2]); px(c, ((7, 7), (8, 7), (15, 8), (16, 8), (22, 7), (23, 7)), ramp('#58a8e0')[4])
+    c.rect(2, 5, 29, 5, ICO['W']); c.rect(4, 13, 5, 13, ramp(GOLD)[2]); c.rect(26, 13, 27, 13, ramp(GOLD)[2]); c.rect(28, 2, 28, 4, ramp(GOLD)[3]); c.p(27, 2, ramp(GOLD)[3])
+    return fin(c, (14, 3, 28))
+
+def part_furniture(A):
+    A.section('props_furniture'); o = lambda n, c, s=1: A.obj(n, c, cat='furniture', solid=s)
+    for n, col in (('red', RED), ('blue', BLUE), ('green', GREEN), ('purple', PURPLE), ('white', '#d0ccc0')):
+        o('bed_single_' + n, bed(col)); o('bed_double_' + n, bed(col, True))
+    o('table', table()); o('table_cloth', table(cloth=LINEN)); o('table_dark', table(DARKWOOD)); o('table_feast', table(cloth=RED))
+    o('table_round', table_small(rnd_=True)); o('table_small', table_small())
+    for it in ('mug', 'candle', 'book', 'orb'): o('table_small_' + it, table_small(item=it))
+    for d in 'nesw': o('chair_' + d, chair(d)); o('chair_cushion_' + d, chair(d, DARKWOOD, RED))
+    o('stool', stool()); o('stool_dark', stool(DARKWOOD))
+    for k in ('jars', 'plates', 'books'): o('shelf_' + k, shelf(k))
+    o('bookshelf', bookshelf()); o('bookshelf_b', bookshelf(seed=7)); o('bookshelf_dark', bookshelf(DARKWOOD, seed=3)); o('bookshelf_potions', bookshelf(kind='potions')); o('bookshelf_empty', bookshelf(kind='empty'))
+    for mat, w, t in (('wood', LIGHTWOOD, '#d8c8a8'), ('stone', STONE, MARBLE), ('dark', DARKWOOD, '#8a6a4a')):
+        for pc in 'lmr': o('counter_%s_%s' % (mat, pc), counter(pc, w, t))
+    o('stove', stove()); o('fireplace_lit', fireplace()); o('fireplace_out', fireplace(False)); o('fireplace_dark_lit', fireplace(col=DARKSTONE))
+    o('throne_gold', throne()); o('throne_stone', throne(STONE, BLUE)); o('throne_dark', throne(DARKSTONE, PURPLE)); o('throne_wood', throne(LIGHTWOOD, GREEN))
+    o('altar', altar()); o('altar_dark', altar(DARKSTONE, PURPLE, '#c8c8d8')); o('altar_nature', altar(MOSS, '#e8dcc0', '#d86a8a'))
+    o('anvil', anvil()); o('forge_lit', forge()); o('forge_out', forge(False))
+    o('cauldron_green', cauldron()); o('cauldron_purple', cauldron('#a858d8')); o('cauldron_stew', cauldron('#c88a48')); o('cauldron_water', cauldron('#58a8e0'))
+    o('loom', loom()); o('loom_red', loom(RED))
+    for n, col in (('red', RED), ('blue', BLUE), ('green', GREEN), ('purple', PURPLE)): o('rug_round_' + n, rug(col), 0); o('rug_' + n, rug(col, False), 0)
+    o('wardrobe', wardrobe()); o('wardrobe_dark', wardrobe(DARKWOOD)); o('mirror', mirror()); o('mirror_tall', mirror(True)); o('mirror_silver', mirror(frame='#b8bcc8'))
+    o('barrel_rack', barrel_rack()); o('weapon_rack_swords', weapon_rack()); o('weapon_rack_spears', weapon_rack('spears')); o('weapon_rack_mixed', weapon_rack('mixed'))
+    o('plant_pot', plant_pot()); o('plant_pot_flower', plant_pot(flower='#e85a8a')); o('bathtub', bathtub())
+
+PARTS = [part_nature, part_village, part_monument, part_doors, part_furniture]
 
 def build(A):
     for p in PARTS: p(A)
