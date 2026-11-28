@@ -67,6 +67,17 @@ def tree_pine(leaf, wood=WOOD, seed=0, snow=False):
                 for x in range(32):
                     if c.get(x, y) and abs(x - 15.5) < (y - y0) * half / (y1 - y0) + 1 and rnd(x, y, seed) < 0.8: c.p(x, y, ramp(SNOW)[4 if x < 16 else 3])
     speck(c, leaf, seed, 0.10)
+    if snow:                         # snow lies along the sloped shoulders of the two lower tiers (their tops are hidden)
+        sr = ramp(SNOW)
+        for y0, y1, half, vis in ((22, 39, 13, 29), (12, 28, 10.5, 18)):
+            for y in range(vis, y1 - 1):
+                e = (y - y0) * half / (y1 - y0)
+                for k in range(4 if y < vis + 4 else 3):
+                    for x in (round(15.5 - e) + k, round(15.5 + e) - k):
+                        if c.get(x, y) and rnd(x, y, seed) < 0.85: c.p(x, y, sr[4 if x < 16 else 3])
+            for x in range(32):          # drift directly under the tier above
+                for y in (vis, vis + 1):
+                    if c.get(x, y) and rnd(x, y, seed + 3) < (0.75 if y == vis else 0.4): c.p(x, y, sr[4 if x < 16 else 3])
     return fin(c, (45, 9, 22))
 
 def tree_palm(leaf='#3fae4a', wood='#b08a55', seed=0):

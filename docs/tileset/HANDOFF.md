@@ -185,7 +185,6 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
   `quad` side views of two neighbours touch nose-to-nose only in the preview sheet (not a bug).
 - Kingdoms: `dwarven_*` flat roofs are a large dark slab (add hatch/skylight detail); elven `leaf` roofs read as a bush -
   fine, but houses could use a visible trunk; `*_castle` side towers overlap the keep windows a little.
-- `tree_snowy` (pine): snow only shows on the top tier; widen the snow band on the lower tiers.
 - `stairs_*`: steps read as flat stripes; add a side stringer / perspective taper.
 - `window_stained`: centre rosette is hidden by the frame cross; `trapdoor_open` ladder is hard to read.
 - `web_*` are faint on light ground (fine on dark dungeon floor); `brazier_*` legs read a bit like a basket.
