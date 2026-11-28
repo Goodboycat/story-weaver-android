@@ -294,6 +294,7 @@ data class AiMapTokenSpec(
     val kind: String = "monster",
     val x: Int,
     val y: Int,
+    val sprite: String? = null,
 )
 
 data class MapPaintScript(
@@ -624,6 +625,7 @@ object MapPaintEngine {
                 ownerId = ownerId,
                 x = spec.x.coerceIn(0, targetWidth - 1),
                 y = spec.y.coerceIn(0, targetHeight - 1),
+                sprite = spec.sprite,
             )
         }
         if (addedTokens.isNotEmpty()) opsApplied++
@@ -729,7 +731,8 @@ object MapPaintJsonParser {
         if (opsArr != null) {
             for (i in 0 until opsArr.length()) {
                 val o = opsArr.optJSONObject(i) ?: continue
-                parseSingleOp(o)?.let { ops += it }
+                val macro = MapMacroOps.expand(o)
+                if (macro != null) ops += macro else parseSingleOp(o)?.let { ops += it }
             }
         }
 
@@ -744,9 +747,9 @@ object MapPaintJsonParser {
                     co.optCleanString("colorHex") ?: co.optCleanString("color")
                 )
                 val emoji = sanitizeMapEmoji(co.optCleanString("emoji"))
-                val tile = MapLayerMarker.of("", co.optCleanString("tile") ?: co.optCleanString("terrain"))
-                val line = MapLayerMarker.of("", co.optCleanString("line"))
-                val objName = MapLayerMarker.of("", co.optCleanString("obj") ?: co.optCleanString("object"))
+                val tile = MapMacroOps.terrain(co.optCleanString("tile") ?: co.optCleanString("terrain"))
+                val line = MapMacroOps.line(co.optCleanString("line"))
+                val objName = MapMacroOps.obj(co.optCleanString("obj") ?: co.optCleanString("object"))
                 if (color != null || emoji != null || tile != null || line != null || objName != null) {
                     directCells[k] = GridCell(
                         colorHex = color?.takeUnless { MapLayerMarker.isMarker(it) },
@@ -771,6 +774,7 @@ object MapPaintJsonParser {
                         kind = kind,
                         x = to.optInt("x", 0),
                         y = to.optInt("y", 0),
+                        sprite = MapMacroOps.sprite(to.optCleanString("sprite")),
                     )
                 }
             }
@@ -798,11 +802,13 @@ object MapPaintJsonParser {
             ?: o.optCleanString("color")
             ?: o.optCleanString("bg")
         val emoji = sanitizeMapEmoji(o.optCleanString("emoji"))
-        val tileName = o.optCleanString("tile") ?: o.optCleanString("terrain")
-        val lineName = o.optCleanString("line")
-            ?: tool.takeIf { it == "river" || it == "road" || it == "fence" || it == "wall" }
-                ?.takeIf { rawColor == null && emoji == null && tileName == null }
-        val objName = o.optCleanString("obj") ?: o.optCleanString("object") ?: o.optCleanString("prop")
+        val tileName = MapMacroOps.terrain(o.optCleanString("tile") ?: o.optCleanString("terrain"))
+        val lineName = MapMacroOps.line(
+            o.optCleanString("line")
+                ?: tool.takeIf { it == "river" || it == "road" || it == "fence" || it == "wall" }
+                    ?.takeIf { rawColor == null && emoji == null && tileName == null }
+        )
+        val objName = MapMacroOps.obj(o.optCleanString("obj") ?: o.optCleanString("object") ?: o.optCleanString("prop"))
         // Tileset names win over colours; they ride inside colorHex as layer markers.
         val colorHex = MapLayerMarker.of(MapLayerMarker.OBJ, objName)
             ?: MapLayerMarker.of(MapLayerMarker.LINE, lineName)

@@ -142,6 +142,16 @@ A1. (non-tileset, owner request) AI provider settings: quick-select chips remove
 A2. (non-tileset) Voice room is in-app: `ui/components/VoiceRoomDialog.kt` (Jitsi web client in a WebView, mic/camera
     permissions in the manifest). Read `docs/VOICE_ROOM.md`.
 
+7. Map AI (CI-compiled only, not device-tested): `data/MapMacroOps.kt` = macro ops expanded into plain `MapPaintOp.Paint` ops with
+    `MapLayerMarker` names (engine untouched): `building` (roof footprint + wall row + door/windows; `floor` => interior room),
+    `biome` (value-noise patches with exact weights + weighted prop scatter that avoids liquid/wall/cliff/roof/forest), `kingdom`
+    (rampart ring + south gate + roads + castle + N buildings), tileset `line` (polyline `points`, forced 4-connected). Name
+    snapping (`MapMacroOps.terrain/line/obj/sprite`: exact -> prefix -> contains, against `TileAtlas.peek()`), also used by
+    `parseSingleOp`, direct cells and token `sprite` (`AiMapTokenSpec.sprite` -> `MapToken.sprite`). `MapTileCatalog.promptGuide()`
+    = catalogue grouped by cat (kingdom buildings compressed to `<kingdom>_<part>`). `mapArchitectSystemPrompt` rewritten around
+    tile names (old `palettePromptGuide` no longer in the prompt). The atlas must be loaded before the AI call (GridMapTab does it).
+8a. `docs/tileset/AI_WORLD_GUIDE.md` (ops table, layers, edit mode, recipes) + short recipes `GuidesContent.MAP_AI_RECIPES` in the prompt.
+
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
@@ -151,25 +161,13 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 ### 6. Kotlin
 - (6a-6e written; they still have to pass the CI compile - see 9b, do that EARLY)
 
-### 7. AI
-- 7a. `MapPaintOp` / `MapPaintJsonParser`: every op accepts `"tile"`; new ops `place` (object) and
-  `line` (`"line":"river"`).
-- 7b. New ops `building` (roof terrain footprint + door), `biome` (noise fill with weighted
-  terrains + scatter props), `kingdom` (walls + roads + N buildings).
-- 7c. Prompt in `AiParserService.kt` (~l.150-170, replacing `palettePromptGuide`): catalogue names
-  grouped by `cat`, never indices; layer order ground -> liquid -> path -> raised -> lines ->
-  objects -> tokens; edits return only the ops that change. `summarizeMapForPrompt` lists tile
-  names per region so edits work.
-
-### 8. Docs
-- 8a. `docs/tileset/AI_WORLD_GUIDE.md` (recipes: overworld route, town, interior, dungeon, kingdom,
-  dimension) + short version embedded in the system prompt.
-
 ### 10. Voice (after the tileset, or when the owner asks)
 - 10a. Phone screen share: swap the WebView for the native Jitsi Meet SDK - exact steps in `docs/VOICE_ROOM.md`.
 - 10b. Check on a device that A1/A2 behave (not device-tested; only CI-compiled).
 
 ### 9. Finish
+- 9c. Device-test the Map AI: the system prompt is now ~5k tokens (catalogue); if a cheap model truncates, send only the
+  categories that match the request. Make `biome` props respect terrain painted by earlier ops; put `kingdom` doors on roads.
 - 9a. Add palette-swap rows to the tables where coverage is thin (sheet is already > 2000 tiles).
 - 9b. Check the GitHub Actions APK build and fix what breaks.
 

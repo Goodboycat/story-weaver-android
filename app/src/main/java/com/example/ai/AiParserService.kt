@@ -136,44 +136,63 @@ object AiPromptTemplates {
     """.trimIndent()
 
     fun mapArchitectSystemPrompt(): String = buildString {
-        appendLine("You are a procedural tabletop RPG Game Map Programmer inside Story Weaver.")
-        appendLine("You build and edit tile maps by writing an ordered JSON program of painting tool calls — exactly like coding a 2D game map.")
-        appendLine("Return ONLY a valid JSON object (no markdown fences, no commentary) with this schema:")
+        val max = com.example.data.MAP_MAX_SIZE
+        appendLine("You are the Map Architect of Story Weaver: you build and edit GBA-style 16px tile maps for a tabletop RPG.")
+        appendLine("You write an ordered JSON program of painting ops. Return ONLY one valid JSON object (no markdown, no commentary):")
         appendLine(
             """
             {
-              "width": 16,
-              "height": 14,
-              "clearFirst": true,
-              "clearTokens": false,
-              "summary": "Short description of the painted map or edit",
+              "width": 24, "height": 20, "clearFirst": true, "clearTokens": false,
+              "summary": "Short description of the map or of the edit",
               "operations": [
-                {"tool": "rect", "x1": 0, "y1": 0, "x2": 15, "y2": 13, "colorHex": "#15803D", "emoji": null, "hollow": false},
-                {"tool": "rect_border", "x1": 1, "y1": 1, "x2": 14, "y2": 12, "colorHex": "#334155", "emoji": "🧱", "thickness": 1},
-                {"tool": "line", "x1": 0, "y1": 6, "x2": 15, "y2": 6, "colorHex": "#0284C7", "emoji": "🌊", "brushSize": 2},
-                {"tool": "circle", "cx": 8, "cy": 7, "radius": 3, "filled": true, "colorHex": "#4C1D95", "emoji": "✨"},
-                {"tool": "checker", "x1": 3, "y1": 3, "x2": 6, "y2": 6, "colorHex": "#5C4033", "emoji": null, "colorHex2": "#78350F", "emoji2": null},
-                {"tool": "scatter", "x1": 1, "y1": 1, "x2": 14, "y2": 12, "count": 10, "colorHex": "#14532D", "emoji": "🌲", "onlyEmpty": true},
-                {"tool": "flood_fill", "x": 5, "y": 5, "colorHex": "#78350F", "emoji": null},
-                {"tool": "paint", "points": [[7, 1], [8, 1]], "colorHex": "#78350F", "emoji": "🚪", "brushSize": 1},
+                {"tool": "biome", "x1": 0, "y1": 0, "x2": 23, "y2": 19, "terrains": {"grass": 5, "tall_grass": 2, "flower_meadow": 1}, "props": {"tree_oak": 3, "bush": 2, "rock": 1}, "density": 0.06, "seed": 7},
+                {"tool": "circle", "cx": 5, "cy": 14, "radius": 3, "filled": true, "tile": "water"},
+                {"tool": "line", "line": "river", "points": [[5, 11], [5, 4], [12, 0]]},
+                {"tool": "line", "line": "road", "x1": 0, "y1": 9, "x2": 23, "y2": 9},
+                {"tool": "paint", "points": [[5, 9]], "line": "wood_bridge"},
+                {"tool": "rect", "x1": 14, "y1": 12, "x2": 20, "y2": 17, "tile": "farmland"},
+                {"tool": "rect_border", "x1": 13, "y1": 11, "x2": 21, "y2": 18, "line": "wood_fence", "thickness": 1},
+                {"tool": "building", "x1": 15, "y1": 2, "x2": 19, "y2": 5, "roof": "roof_red", "wall": "plaster_wall", "door": "door_wood_closed_s"},
+                {"tool": "place", "obj": "human_inn", "x": 8, "y": 5},
+                {"tool": "place", "obj": "well_stone", "points": [[12, 10]]},
+                {"tool": "scatter", "x1": 0, "y1": 0, "x2": 23, "y2": 3, "count": 8, "obj": "tree_pine"},
+                {"tool": "kingdom", "x1": 2, "y1": 2, "x2": 21, "y2": 17, "kingdom": "elven", "ground": "lush_grass", "count": 6},
+                {"tool": "flood_fill", "x": 3, "y": 3, "tile": "sand"},
                 {"tool": "erase", "x1": 7, "y1": 1, "x2": 8, "y2": 1}
               ],
               "tokens": [
-                {"label": "Goblin Scout", "emoji": "🐺", "kind": "monster", "x": 5, "y": 4}
+                {"label": "Gate Guard", "sprite": "guard", "emoji": "🛡️", "kind": "npc", "x": 11, "y": 16}
               ]
             }
             """.trimIndent()
         )
+        appendLine("(The example shows every op once; it is NOT a sensible map. Use only the ops you need.)")
         appendLine()
-        appendLine("PAINTING ENGINE RULES:")
-        appendLine("- Grid bounds: width 4..${com.example.data.MAP_MAX_SIZE}, height 4..${com.example.data.MAP_MAX_SIZE}. Coordinates are 0-indexed: x in 0..width-1, y in 0..height-1.")
-        appendLine("- Operations execute in order! Paint base terrain/floors first (e.g. rect), then walls/borders (rect_border), then rivers/roads/corridors (line), then cutouts/doorways (erase or paint), then details/furniture/trees/traps/treasures (paint, circle, scatter, checker).")
-        appendLine("- Composite blocks: every tile has an optional background block colorHex (#RRGGBB or JSON null) AND an optional foreground single Unicode emoji.")
-        appendLine("- STRICT EMOJI & TILE RULE: NEVER output the string \"null\", \"none\", or plain English words like \"tree\" or \"wall\" in \"emoji\". For a color-only block, either omit \"emoji\" completely or set JSON null (not quoted \"null\"). When drawing symbols, ONLY use actual Unicode emojis from the app symbol set (🌲 🌳 🌴 🌵 🍄 🌻 ⛰️ 🪨 🌊 💧 ❄️ 🔥 🌋 🧱 🏰 🏛️ ⛩️ ⛺ 🏠 🛤️ 🌉 🚪 🗝️ 🪜 🕳️ ☠️ 💀 ⚔️ 🛡️ 🏹 💎 🪙 ⚱️ 🕯️ 📜 ✨ 🔮 🧪 🪵).")
-        appendLine("- Use clearFirst=true when creating a brand-new map; use clearFirst=false when editing/adding to an existing map.")
-        appendLine("- Keep tokens array empty [] unless the user explicitly asks to place characters/monsters/NPCs on the map.")
+        appendLine("OPS:")
+        appendLine("- Shape ops rect, rect_border (thickness), line (x1,y1,x2,y2 or a \"points\" polyline, brushSize 1-3), circle (cx, cy, radius, filled), paint (points), scatter (count, onlyEmpty), flood_fill (x, y), checker. Each takes exactly ONE of \"tile\" (terrain), \"line\" (line set) or \"obj\" (object).")
+        appendLine("- place: one object at x,y or at every point in \"points\". x,y is the object's TOP-LEFT cell; a 2x3 tree at (4,4) covers 4..5 x 4..6.")
+        appendLine("- building: exterior = roof terrain footprint + one wall row at the bottom + door at bottom-centre (\"doorX\" to move it). With \"floor\" (or tool \"room\") it is an INTERIOR: floor + wall ring + door gap. Keys: roof, wall, door, window, floor.")
+        appendLine("- biome: natural area. \"terrains\" = weighted names (first listed = lowest ground, good for water), \"scale\" = patch size (default 5), \"props\" = weighted objects scattered at \"density\" (0..0.6; never on liquid, walls, cliffs), \"seed\".")
+        appendLine("- kingdom: a whole settlement in the box: optional \"ground\", rampart ring (\"wall\" line, \"walls\": false for an open village) with a south gate, main road (\"road\" line), castle (\"castle\": false to skip) and \"count\" buildings of that \"kingdom\" style. Needs about 16x16 or more.")
+        appendLine("- erase: clears every layer of the cells in the box.")
         appendLine()
-        appendLine(MapColorPalette.palettePromptGuide())
+        appendLine("RULES:")
+        appendLine("- Grid: width and height 4..$max. Coordinates are 0-indexed, x right, y down. Stay inside the grid, including the full size of big objects.")
+        appendLine("- A cell has 3 layers: terrain, line, object. A new terrain replaces the whole cell; lines and objects stack on top of what is there.")
+        appendLine("- Ops run in order. Layer order: ground -> liquid -> path terrain -> raised (cliff, forest, walls, roofs) -> lines (rivers, roads, fences, ramparts) -> objects -> tokens.")
+        appendLine("- Use ONLY names from the catalogue below. Never numbers or tile indices. If nothing fits, pick the closest name.")
+        appendLine("- Do not overlap objects. Keep doors reachable: put a road or path cell in front of every door. Leave walkable space.")
+        appendLine("- Rivers and roads must be continuous; cross a river with a bridge line cell painted on the river cell.")
+        appendLine("- Prefer few big ops (biome, rect, kingdom, building) over many single cells. A full map is usually 8-40 ops.")
+        appendLine("- NEW map: clearFirst=true and start with a biome or rect that covers the whole grid, so no cell stays empty.")
+        appendLine("- EDIT: clearFirst=false, keep width/height unless asked, and return ONLY the ops that change something. Use the coordinates from CURRENT MAP STATE; never repaint untouched areas.")
+        appendLine("- tokens: [] unless the user asks for characters, NPCs or monsters. Give each a \"sprite\" from the catalogue plus a fallback \"emoji\"; kind = player | npc | monster.")
+        appendLine("- Content rule: no demons or hellish content. Evil realms are a Corrupted Kingdom or Dark Kingdom (kingdom \"dark\" / \"undead\").")
+        appendLine("- Legacy: \"colorHex\" (#RRGGBB) and \"emoji\" still work on shape ops; use them only when the user asks for plain colours or emoji.")
+        appendLine()
+        appendLine(com.example.data.GuidesContent.MAP_AI_RECIPES)
+        appendLine()
+        appendLine(com.example.data.MapTileCatalog.promptGuide())
     }.trim()
 }
 
