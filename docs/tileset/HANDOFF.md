@@ -37,6 +37,7 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
 - `tools/tileset/props.py`  objects. One `part_xxx(A)` function per task, appended to `PARTS`.
   Helpers: `speck` (leaf noise), `cap` (snow/moss top), `thick` (thick line), `fin` (outline+shadow),
   `trunk`. Register with `A.obj(name, canvas, cat='..', solid=0|1)`; canvas size = multiples of 16.
+- `tools/tileset/kingdoms.py`  `KINGDOMS` table + `building()` generator (see DONE 3).
 - `tools/tileset/preview.py`  `python3 tools/tileset/preview.py <cat> [scale] [cols]` -> `/tmp/preview_<cat>.png`:
   zoomed sheet of ONE category. Use this to review a new part (props.png is too small to judge).
 - `tools/tileset/demo_extra.py`  props placed on the demo map (`get`) + contact sheet of every
@@ -73,21 +74,20 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     cage(_bones) 1x2, web_{nw,ne,se,sw}, bones_pile/skull/ribs, skull_pile, chains x3, portal_{blue,green,purple,red,gold} 1x2 +
     portal_small_* 1x1, rift x3 1x2, rune_circle x4 2x2 (square+diamond knot - never a pentagram), braziers x4, sarcophagus x4 1x2,
     iron_gate_closed/open, crystal_cluster x4, stalagmites x5. Sheet is now 2521 tiles, 354 objects.
+3. Kingdoms (`kingdoms.py`, 272 objects, cats `kingdom_<name>`): 16 kingdoms = human, elven, dwarven, orc, desert, frost,
+    eastern, merfolk, sky, undead, beastfolk, fey, gnome, dragon, nomad, dark. One row in `KINGDOMS` (`K(wall, wall_style,
+    roof, roof_style, trim, door, glass, flag, tower_roof, **flags)`) = 17 objects: `<k>_house_s` 2x2, `house_m` 3x3,
+    `house_l` 4x3, `shop` 3x3, `inn` 4x3, `temple` 3x3, `tower` 2x4, `gate` 3x3 (solid=0, walk-through arch), `castle` 4x4,
+    `banner` 1x2, `stall` 2x2, `lamp` 1x2, `icon_village/town/city/castle/ruin` 1x1 (world-map icons, solid=0).
+    Generator: `building(w, h, P, rs, wall_h, m, sign, cols, emblem)`; wall styles plaster/brick/stone/plank/log; roof styles
+    gable/thatch/pagoda/flat/dome/ribdome/cone/tent/leaf; flags timber, chimney, snow, spots, ridge='spikes', arch.
+    A new kingdom = one new row. Door of every building is bottom-centre. Sheet is now 4137 tiles, 626 objects.
 
 ## TODO (in order, 2-3 lettered tasks per chat; push after each)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
 ### 2. Props (rest) - `props.py`, one `part_*` each
 - (all props parts done; add more `part_*` only if a later task needs them)
-
-### 3. Kingdoms - `kingdoms.py` (new file; `build(A)` is already auto-called by build.py)
-- 3a. Parametric building generator `building(w, h, pal, roof, trim)` + kingdoms Human, Elven,
-  Dwarven, Orc. Per kingdom: house S (2x2) / M (3x3) / L (4x3), shop, inn, temple, tower (2x4),
-  gate (3x3), castle (4x4), banner, market stall, lamp, + 1-tile world icons village / town /
-  city / castle / ruin. Names `human_house_s`, `human_icon_town`, cat `kingdom_human`.
-- 3b. Desert, Frost, Eastern, Merfolk.
-- 3c. Sky/Celestial, Undead, Beastfolk, Fey.
-- 3d. Gnome/Clockwork, Dragon, Nomad, Corrupted/Dark (no demon imagery).
 
 ### 4. Dimensions - `props.py` `part_dimension_*` (cat `dim_<name>`)
 - 4a. Astral, Void, Feywild, Shadow, Dream, Spirit, Mirror: portals, floating rocks, star props,
@@ -132,6 +132,8 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 - 9b. Check the GitHub Actions APK build and fix what breaks.
 
 ## Known art notes (fix when touching the file)
+- Kingdoms: `dwarven_*` flat roofs are a large dark slab (add hatch/skylight detail); elven `leaf` roofs read as a bush -
+  fine, but houses could use a visible trunk; `*_castle` side towers overlap the keep windows a little.
 - `tree_snowy` (pine): snow only shows on the top tier; widen the snow band on the lower tiers.
 - `stairs_*`: steps read as flat stripes; add a side stringer / perspective taper.
 - `window_stained`: centre rosette is hidden by the frame cross; `trapdoor_open` ladder is hard to read.
