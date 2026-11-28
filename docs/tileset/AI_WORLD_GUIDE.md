@@ -46,6 +46,8 @@ No demon / hellish content. Evil realms are the Corrupted Kingdom or Dark Kingdo
 `shadow` / `void` dimensions).
 
 ## Not done / ideas
-- `biome` props do not look at terrain painted by earlier ops (only at its own terrains).
+- `biome` without `terrains` only scatters props: it reads the ground from the map being edited plus every earlier op in the same script (rect / circle / paint / macros) and skips liquid, wall, cliff, roof, forest, lines and objects.
+- `kingdom` joins each building door (bottom-centre) to the nearest road with a spur.
+- The system prompt only lists the object / sprite categories whose keywords appear in the request (`MapTileCatalog.wantedCats`); terrains, lines, nature, village and kingdoms are always listed. Unlisted names still snap.
 - `kingdom` places buildings on a shuffled free-spot search, not along streets; doors may not face a road.
 - Multi-tile objects are not clipped at the map edge.

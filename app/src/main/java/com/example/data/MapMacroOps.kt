@@ -48,6 +48,52 @@ object MapMacroOps {
     fun obj(raw: String?): String? = pick(raw, TileAtlas.peek()?.objects?.keys)
     fun sprite(raw: String?): String? = pick(raw, TileAtlas.peek()?.sprites?.keys)
 
+    /** Terrain per cell and cells holding a line / object, from the existing map plus the ops parsed so far. */
+    private val ground = HashMap<Pair<Int, Int>, String>()
+    private val blocked = HashSet<Pair<Int, Int>>()
+
+    /** Call once before parsing a script. [grid] = the map being edited (null / empty when it is wiped first). */
+    fun begin(grid: Map<String, GridCell>?) {
+        ground.clear()
+        blocked.clear()
+        val atlas = TileAtlas.peek()
+        grid?.forEach { (k, c) ->
+            val xy = k.split(',')
+            val x = xy.getOrNull(0)?.trim()?.toIntOrNull() ?: return@forEach
+            val y = xy.getOrNull(1)?.trim()?.toIntOrNull() ?: return@forEach
+            c.tile?.let { ground[x to y] = it }
+            if (c.line != null) blocked += x to y
+            c.obj?.let { n ->
+                val ob = atlas?.objects?.get(n)
+                blocked += Box(x, y, x + (ob?.w ?: 1) - 1, y + (ob?.h ?: 1) - 1).cells()
+            }
+        }
+    }
+
+    /** Records what [op] paints so later macros (biome props, kingdom) can respect it. */
+    fun note(op: MapPaintOp) {
+        val (marker, pts) = when (op) {
+            is MapPaintOp.Paint -> op.colorHex to op.points
+            is MapPaintOp.Rect -> op.colorHex to (if (op.hollow) Box(op.x1, op.y1, op.x2, op.y2).border() else Box(op.x1, op.y1, op.x2, op.y2).cells())
+            is MapPaintOp.Circle -> op.colorHex to (if (!op.filled) emptyList() else Box(op.cx - op.radius, op.cy - op.radius, op.cx + op.radius, op.cy + op.radius)
+                .cells().filter { (x, y) -> (x - op.cx) * (x - op.cx) + (y - op.cy) * (y - op.cy) <= op.radius * op.radius })
+            else -> return
+        }
+        if (marker == null || pts.size > MAP_MAX_SIZE * MAP_MAX_SIZE) return
+        when {
+            marker.startsWith(MapLayerMarker.TILE) -> {
+                val name = marker.removePrefix(MapLayerMarker.TILE)
+                pts.forEach { ground[it] = name }
+                blocked -= pts.toSet()
+            }
+            marker.startsWith(MapLayerMarker.LINE) -> blocked += pts
+            marker.startsWith(MapLayerMarker.OBJ) -> {
+                val ob = TileAtlas.peek()?.objects?.get(marker.removePrefix(MapLayerMarker.OBJ))
+                pts.forEach { (x, y) -> blocked += Box(x, y, x + (ob?.w ?: 1) - 1, y + (ob?.h ?: 1) - 1).cells() }
+            }
+        }
+    }
+
     private fun paint(prefix: String, name: String?, pts: List<Pair<Int, Int>>): MapPaintOp? =
         if (name == null || pts.isEmpty()) null
         else MapPaintOp.Paint(points = pts, colorHex = prefix + name, brushSize = 1)
@@ -187,7 +233,7 @@ object MapMacroOps {
         val scale = o.optDouble("scale", 5.0).coerceIn(1.5, 24.0)
         val atlas = TileAtlas.peek()
         val terr = weighted(o, "terrains", "tile", "terrain").mapNotNull { (n, w) -> terrain(n)?.let { it to w } }
-            .ifEmpty { listOfNotNull(terrain(o.str("tile", "terrain") ?: "grass")?.let { it to 1.0 }) }
+            .ifEmpty { listOfNotNull(terrain(o.str("tile", "terrain"))?.let { it to 1.0 }) }
         val out = mutableListOf<MapPaintOp?>()
         val terrainAt = HashMap<Pair<Int, Int>, String>()
         if (terr.isNotEmpty()) {
@@ -221,7 +267,9 @@ object MapMacroOps {
                 val foot = Box(x, y, x + (ob?.w ?: 1) - 1, y + (ob?.h ?: 1) - 1)
                 if (foot.x2 > b.x2 || foot.y2 > b.y2) return@forEach
                 val ok = foot.cells().all { c ->
-                    c !in used && (terrainAt[c]?.let { t -> atlas?.terrains?.get(t)?.cat } ?: "") !in NO_PROP_CATS
+                    val t = terrainAt[c]
+                    c !in used && (t != null || c !in blocked) &&
+                        ((t ?: ground[c])?.let { atlas?.terrains?.get(it)?.cat } ?: "") !in NO_PROP_CATS
                 }
                 if (!ok) return@forEach
                 used += foot.cells()
@@ -270,6 +318,9 @@ object MapMacroOps {
         val want = o.optInt("count", o.optInt("buildings", 6)).coerceIn(0, 24)
         val inner = Box(b.x1 + 1, b.y1 + 1, b.x2 - 1, b.y2 - 1)
         val spots = inner.cells().shuffled(rng)
+        val roadSet = roadCells.toHashSet()
+        val houses = HashSet<Pair<Int, Int>>()
+        val spurs = LinkedHashSet<Pair<Int, Int>>()
         var placed = 0
         var tries = 0
         while (placed < want && tries < want * 3) {
@@ -281,12 +332,31 @@ object MapMacroOps {
             val h = ob?.h ?: size.second
             val spot = spots.firstOrNull { (x, y) ->
                 x + w - 1 <= inner.x2 && y + h <= inner.y2 + 1 &&
-                    Box(x - 1, y - 1, x + w, y + h).cells().none { it in reserved && !(it.second == y + h && it in roadCells) }
+                    Box(x - 1, y - 1, x + w, y + h).cells().none { it in reserved && !(it.second == y + h && it in roadSet) }
             } ?: continue
             out += objs(name, listOf(spot))
-            reserved += Box(spot.first, spot.second, spot.first + w - 1, spot.second + h - 1).cells()
+            val foot = Box(spot.first, spot.second, spot.first + w - 1, spot.second + h - 1).cells()
+            reserved += foot
+            houses += foot
             placed++
+            // Door is bottom-centre: walk from the cell below it to the nearest road without crossing a building.
+            val door = (spot.first + (w - 1) / 2) to (spot.second + h)
+            if (door.second <= inner.y2 && door !in roadSet) {
+                val target = roadSet.minByOrNull { abs(it.first - door.first) + abs(it.second - door.second) }
+                val spur = target?.let { t ->
+                    listOf(
+                        orthoPath(door.first, door.second, door.first, t.second) + orthoPath(door.first, t.second, t.first, t.second),
+                        orthoPath(door.first, door.second, t.first, door.second) + orthoPath(t.first, door.second, t.first, t.second),
+                    ).firstOrNull { path -> path.none { it in houses || (it in reserved && it !in roadSet) } }
+                }
+                if (spur != null) {
+                    spurs += spur
+                    roadSet += spur
+                    reserved += spur
+                }
+            }
         }
+        out += lines(road, spurs.toList())
         return out.filterNotNull()
     }
 }
@@ -298,7 +368,45 @@ object MapTileCatalog {
 
     private fun sized(o: TileAtlas.Obj): String = if (o.w == 1 && o.h == 1) o.name else "${o.name} ${o.w}x${o.h}"
 
-    fun promptGuide(): String {
+    /** Optional categories -> words in the request that pull them in. Terrains, lines, nature, village are always sent. */
+    private val CAT_WORDS = mapOf(
+        "furniture" to "interior|inside|indoor|room|house|home|inn|tavern|shop|store|bed|table|kitchen|library|hall|throne|furnitur|cabin|hut",
+        "door" to "door|stair|ladder|window|interior|inside|indoor|room|house|dungeon|castle|cave|crypt|tower|gate|arch",
+        "dungeon" to "dungeon|cave|cavern|crypt|tomb|trap|prison|jail|lair|mine|ruin|catacomb|sewer|vault|treasure|maze|labyrinth",
+        "monument" to "grave|cemeter|statue|temple|ruin|shrine|fountain|plaza|town|city|kingdom|castle|pillar|monument|altar|church|park",
+        "people" to "npc|people|person|villager|guard|character|party|hero|merchant|king|queen|soldier|army|populat|token|citizen|bandit|crowd",
+        "creature" to "monster|creature|animal|beast|enemy|enemies|encounter|wolf|wolves|token|populat|wildlife|slime|spider|bird|fish|undead|battle|fight",
+        "creature_big" to "dragon|boss|giant|golem|troll|treant|kraken|hydra|titan|colossus|huge|yeti|cyclops|wyvern",
+    )
+    private const val DIM_WORDS = "dimension|plane|realm|portal|otherworld"
+    private val DIM_ALIAS = mapOf(
+        "fire" to "fire|lava|volcan|magma|inferno", "water" to "underwater|ocean|sea floor|coral|abyss", "air" to "sky|cloud|air",
+        "earth" to "earth|crystal cav|geode", "shadow" to "shadow|dark", "feywild" to "fey|fairy|faerie", "dream" to "dream|nightmare",
+        "spirit" to "spirit|ghost|afterlife", "mechanus" to "mechan|clockwork|gear|machine|factory", "underdark" to "underdark|underground|deep",
+        "abyssal" to "abyss|deep sea|trench", "astral" to "astral|star|space|cosmic", "void" to "void|nothing", "mirror" to "mirror|glass",
+    )
+
+    private fun hit(words: String, req: String) = Regex("\\b(?:$words)").containsMatchIn(req)
+
+    /** Categories worth sending for [request]; null = send everything (no request, or nothing recognised in it). */
+    fun wantedCats(request: String?): Set<String>? {
+        val req = request?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+        val out = mutableSetOf<String>()
+        CAT_WORDS.forEach { (cat, words) -> if (hit(words, req)) out += cat }
+        val allDims = hit(DIM_WORDS, req)
+        TileAtlas.peek()?.objectCats?.keys?.filter { it.startsWith("dim_") }?.forEach { cat ->
+            val d = cat.removePrefix("dim_")
+            if (allDims || hit(DIM_ALIAS[d] ?: d, req)) out += cat
+        }
+        // Nothing recognised (other language, very short ask): only then is the full catalogue worth its tokens.
+        if (out.isEmpty() && !Regex("\\b(?:forest|river|lake|village|farm|island|desert|snow|swamp|mountain|road|beach|field|camp|wood|jungle|coast|meadow|hill)").containsMatchIn(req)) return null
+        return out
+    }
+
+    fun promptGuide(request: String? = null): String {
+        val want = wantedCats(request)
+        val skipped = mutableListOf<String>()
+        fun keep(cat: String) = want == null || cat in want || cat == "nature" || cat == "village" || cat.startsWith("kingdom_")
         val a = TileAtlas.peek() ?: return "TILESET CATALOGUE: not loaded - use colorHex + emoji cells instead of tile names."
         return buildString {
             appendLine("TILESET CATALOGUE (use these exact names; never invent names, never use numbers):")
@@ -309,6 +417,7 @@ object MapTileCatalog {
             val kingdoms = mutableListOf<String>()
             a.objectCats.forEach { (cat, items) ->
                 if (cat.startsWith("kingdom_")) kingdoms += cat.removePrefix("kingdom_")
+                else if (!keep(cat)) skipped += cat
                 else appendLine("  $cat: " + items.joinToString(", ") { sized(it) })
             }
             if (kingdoms.isNotEmpty()) {
@@ -316,7 +425,13 @@ object MapTileCatalog {
                 appendLine("    parts: $KINGDOM_PARTS (door is bottom-centre)")
             }
             appendLine("SPRITES (token \"sprite\"; 4 facings handled by the app):")
-            a.spriteCats.forEach { (cat, items) -> appendLine("  $cat: " + items.joinToString(", ") { it.name }) }
+            a.spriteCats.forEach { (cat, items) ->
+                if (keep(cat)) appendLine("  $cat: " + items.joinToString(", ") { it.name }) else skipped += cat
+            }
+            if (skipped.isNotEmpty()) {
+                appendLine("NOT LISTED (not needed for this request): " + skipped.joinToString(", ") +
+                    ". If you still need one, use a plain guess such as bed_single_red, wolf, villager - close names are snapped.")
+            }
         }.trim()
     }
 }

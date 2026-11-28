@@ -135,7 +135,7 @@ object AiPromptTemplates {
         Include an appropriate single Unicode emoji symbol for every equipped item.
     """.trimIndent()
 
-    fun mapArchitectSystemPrompt(): String = buildString {
+    fun mapArchitectSystemPrompt(request: String? = null): String = buildString {
         val max = com.example.data.MAP_MAX_SIZE
         appendLine("You are the Map Architect of Story Weaver: you build and edit GBA-style 16px tile maps for a tabletop RPG.")
         appendLine("You write an ordered JSON program of painting ops. Return ONLY one valid JSON object (no markdown, no commentary):")
@@ -172,7 +172,7 @@ object AiPromptTemplates {
         appendLine("- Shape ops rect, rect_border (thickness), line (x1,y1,x2,y2 or a \"points\" polyline, brushSize 1-3), circle (cx, cy, radius, filled), paint (points), scatter (count, onlyEmpty), flood_fill (x, y), checker. Each takes exactly ONE of \"tile\" (terrain), \"line\" (line set) or \"obj\" (object).")
         appendLine("- place: one object at x,y or at every point in \"points\". x,y is the object's TOP-LEFT cell; a 2x3 tree at (4,4) covers 4..5 x 4..6.")
         appendLine("- building: exterior = roof terrain footprint + one wall row at the bottom + door at bottom-centre (\"doorX\" to move it). With \"floor\" (or tool \"room\") it is an INTERIOR: floor + wall ring + door gap. Keys: roof, wall, door, window, floor.")
-        appendLine("- biome: natural area. \"terrains\" = weighted names (first listed = lowest ground, good for water), \"scale\" = patch size (default 5), \"props\" = weighted objects scattered at \"density\" (0..0.6; never on liquid, walls, cliffs), \"seed\".")
+        appendLine("- biome: natural area. \"terrains\" = weighted names (first listed = lowest ground, good for water), \"scale\" = patch size (default 5), \"props\" = weighted objects scattered at \"density\" (0..0.6; never on liquid, walls, cliffs, roads or objects already there), \"seed\". Leave out \"terrains\" to scatter props on the ground that is ALREADY painted (edits, or decorating after other ops).")
         appendLine("- kingdom: a whole settlement in the box: optional \"ground\", rampart ring (\"wall\" line, \"walls\": false for an open village) with a south gate, main road (\"road\" line), castle (\"castle\": false to skip) and \"count\" buildings of that \"kingdom\" style. Needs about 16x16 or more.")
         appendLine("- erase: clears every layer of the cells in the box.")
         appendLine()
@@ -183,6 +183,7 @@ object AiPromptTemplates {
         appendLine("- Use ONLY names from the catalogue below. Never numbers or tile indices. If nothing fits, pick the closest name.")
         appendLine("- Do not overlap objects. Keep doors reachable: put a road or path cell in front of every door. Leave walkable space.")
         appendLine("- Rivers and roads must be continuous; cross a river with a bridge line cell painted on the river cell.")
+        appendLine("- kingdom: every building door gets its own road spur to the main road automatically; do not draw those yourself.")
         appendLine("- Prefer few big ops (biome, rect, kingdom, building) over many single cells. A full map is usually 8-40 ops.")
         appendLine("- NEW map: clearFirst=true and start with a biome or rect that covers the whole grid, so no cell stays empty.")
         appendLine("- EDIT: clearFirst=false, keep width/height unless asked, and return ONLY the ops that change something. Use the coordinates from CURRENT MAP STATE; never repaint untouched areas.")
@@ -192,7 +193,7 @@ object AiPromptTemplates {
         appendLine()
         appendLine(com.example.data.GuidesContent.MAP_AI_RECIPES)
         appendLine()
-        appendLine(com.example.data.MapTileCatalog.promptGuide())
+        appendLine(com.example.data.MapTileCatalog.promptGuide(request))
     }.trim()
 }
 
@@ -928,7 +929,7 @@ class AiParserService {
         endpointUrl: String = AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT,
         apiKeyOverride: String = "",
     ): Result<MapPaintOutcome> = try {
-        val sys = AiPromptTemplates.mapArchitectSystemPrompt()
+        val sys = AiPromptTemplates.mapArchitectSystemPrompt(userPrompt)
         val effectiveW = (targetWidth ?: currentWidth).coerceIn(4, com.example.data.MAP_MAX_SIZE)
         val effectiveH = (targetHeight ?: currentHeight).coerceIn(4, com.example.data.MAP_MAX_SIZE)
         val modeInstruction = if (replaceEntireMap) {
@@ -985,7 +986,7 @@ class AiParserService {
             }
         }
 
-        val script = MapPaintJsonParser.parseScript(jsonText).getOrThrow()
+        val script = MapPaintJsonParser.parseScript(jsonText, if (replaceEntireMap) null else currentGrid).getOrThrow()
         val finalScript = script.copy(
             clearFirst = if (replaceEntireMap) true else script.clearFirst,
             width = targetWidth ?: script.width ?: currentWidth,

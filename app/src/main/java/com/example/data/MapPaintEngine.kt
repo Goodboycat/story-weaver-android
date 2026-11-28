@@ -716,7 +716,8 @@ object MapPaintJsonParser {
         return v
     }
 
-    fun parseScript(rawJson: String): Result<MapPaintScript> = runCatching {
+    @Synchronized
+    fun parseScript(rawJson: String, baseGrid: Map<String, GridCell>? = null): Result<MapPaintScript> = runCatching {
         val obj = JSONObject(rawJson)
         val width = if (obj.has("width") && !obj.isNull("width")) obj.optInt("width", -1).takeIf { it > 0 } else null
         val height = if (obj.has("height") && !obj.isNull("height")) obj.optInt("height", -1).takeIf { it > 0 } else null
@@ -724,6 +725,7 @@ object MapPaintJsonParser {
         val clearTokens = obj.optBoolean("clearTokens", false)
         val summary = obj.optCleanString("summary") ?: "AI painted map"
 
+        MapMacroOps.begin(if (clearFirst) null else baseGrid)
         val ops = mutableListOf<MapPaintOp>()
         val opsArr = obj.optJSONArray("operations")
             ?: obj.optJSONArray("ops")
@@ -732,7 +734,9 @@ object MapPaintJsonParser {
             for (i in 0 until opsArr.length()) {
                 val o = opsArr.optJSONObject(i) ?: continue
                 val macro = MapMacroOps.expand(o)
-                if (macro != null) ops += macro else parseSingleOp(o)?.let { ops += it }
+                val parsed = macro ?: listOfNotNull(parseSingleOp(o))
+                parsed.forEach { MapMacroOps.note(it) }
+                ops += parsed
             }
         }
 
