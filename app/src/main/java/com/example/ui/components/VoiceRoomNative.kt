@@ -21,7 +21,6 @@ object VoiceRoomNative {
             .setServerURL(URL(server))
             .setRoom(room)
             .setUserInfo(user)
-            .setAudioOnly(false)
             .setAudioMuted(false)
             .setVideoMuted(true)
             .setConfigOverride("prejoinConfig.enabled", false)
