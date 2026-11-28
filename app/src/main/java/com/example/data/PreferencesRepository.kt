@@ -357,19 +357,44 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Every website endpoint owns its own profile (key + models). Picking an endpoint therefore
+     * switches to the registered profile for that website (or creates one) instead of rewriting
+     * whichever profile happened to be active.
+     */
     suspend fun setAiEndpointUrl(url: String) {
         val clean = url.trim().ifBlank { AiModelDefaults.DEFAULT_UNOROUTER_ENDPOINT }
+        if (AiModelDefaults.isBuiltInDefaultEndpoint(clean)) {
+            setAiProvider(AiModelDefaults.inferBuiltInProviderForUrl(clean))
+            return
+        }
+        if (!UnorouterClient.isValidEndpointUrl(clean)) return
         editForActiveUser { prefs, uk ->
-            prefs[uk.aiEndpointUrl] = clean
-            val activeCustomId = prefs[uk.activeCustomProviderId]?.trim().orEmpty()
-            if (activeCustomId.isNotEmpty()) {
-                val list = AiModelDefaults.decodeCustomProviders(prefs[uk.customProvidersJson])
-                val updated = list.map { p ->
-                    if (p.id == activeCustomId) p.copy(endpointUrl = clean) else p
+            val list = AiModelDefaults.decodeCustomProviders(prefs[uk.customProvidersJson])
+            val activeId = prefs[uk.activeCustomProviderId]?.trim().orEmpty()
+            val active = list.firstOrNull { it.id == activeId }
+            val host = AiModelDefaults.hostOf(clean)
+            val target = list.firstOrNull { it.endpointUrl.equals(clean, ignoreCase = true) }
+                ?: active?.takeIf { AiModelDefaults.hostOf(it.endpointUrl) == host }?.copy(endpointUrl = clean)
+                ?: list.firstOrNull { AiModelDefaults.hostOf(it.endpointUrl) == host }
+                ?: AiModelDefaults.defaultModelsForHost(clean).let { defaults ->
+                    CustomAiProviderProfile(
+                        id = "custom_${UUID.randomUUID().toString().take(10)}",
+                        name = AiModelDefaults.inferProviderNameFromUrl(clean).take(40),
+                        endpointUrl = clean,
+                        apiKey = "",
+                        selectedModel = defaults.firstOrNull().orEmpty(),
+                        models = defaults,
+                    )
                 }
-                prefs[uk.customProvidersJson] = AiModelDefaults.encodeCustomProviders(updated)
-                prefs[uk.aiProvider] = AiModelDefaults.inferBuiltInProviderForUrl(clean).key
+            val nextList = if (list.any { it.id == target.id }) {
+                list.map { if (it.id == target.id) target else it }
+            } else {
+                (list + target).takeLast(25)
             }
+            prefs[uk.customProvidersJson] = AiModelDefaults.encodeCustomProviders(nextList)
+            saveCurrentBuiltInStateIfActive(prefs, uk)
+            activateCustomProfile(prefs, uk, target)
         }
     }
 
@@ -482,9 +507,8 @@ class PreferencesRepository(private val context: Context) {
         val modelToUse = profile.selectedModel.trim()
             .ifBlank { profile.models.firstOrNull().orEmpty() }
             .ifBlank { AiModelDefaults.defaultModelsForHost(profile.endpointUrl).firstOrNull().orEmpty() }
-        if (modelToUse.isNotBlank()) {
-            prefs[uk.aiModel] = modelToUse
-        }
+        if (modelToUse.isNotBlank()) prefs[uk.aiModel] = modelToUse
+        else prefs.remove(uk.aiModel) // never keep the previous website's model
     }
 
     suspend fun setAiImageEndpointUrl(url: String) {

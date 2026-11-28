@@ -115,6 +115,15 @@ object AiModelDefaults {
         }
     }
 
+    fun hostOf(endpointUrl: String): String =
+        runCatching { URI(endpointUrl.trim()).host.orEmpty().lowercase() }.getOrDefault("").removePrefix("www.")
+
+    /** True when the build-secret keys (Unorouter / OpenRouter) may be sent to this endpoint. */
+    fun isBuiltInHost(endpointUrl: String): Boolean {
+        val host = hostOf(endpointUrl)
+        return host.isEmpty() || host.endsWith("unorouter.com") || host.endsWith("openrouter.ai")
+    }
+
     fun defaultModelsForHost(endpointUrl: String): List<String> {
         val host = runCatching { URI(endpointUrl.trim()).host.orEmpty().lowercase() }
             .getOrDefault("")

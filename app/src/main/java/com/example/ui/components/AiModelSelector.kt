@@ -145,7 +145,11 @@ fun AiModelSelectorBar(
 
     val isExternalRest = selectedProvider != AiProvider.GEMINI || activeCustomProvider != null
     val apiReady = remember(apiKey, selectedProvider, activeCustomProvider) {
-        UnorouterClient.isConfigured(apiKey, selectedProvider)
+        if (activeCustomProvider != null && !AiModelDefaults.isBuiltInHost(activeCustomProvider.endpointUrl)) {
+            activeCustomProvider.apiKey.isNotBlank()
+        } else {
+            UnorouterClient.isConfigured(apiKey, selectedProvider)
+        }
     }
     val endpointValid = UnorouterClient.isValidEndpointUrl(draftEndpoint)
     val imageEndpointValid = UnorouterClient.isValidEndpointUrl(draftImageEndpoint)
@@ -319,47 +323,6 @@ fun AiModelSelectorBar(
                 }
             }
 
-            if (customProviders.isNotEmpty() && effectiveSelectCustom != null) {
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    customProviders.forEach { profile ->
-                        val isActive = activeCustomProviderId == profile.id
-                        FilterChip(
-                            selected = isActive,
-                            onClick = {
-                                showTextModelMenu = false
-                                effectiveSelectCustom(profile.id)
-                            },
-                            label = {
-                                Text(
-                                    text = profile.name,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            },
-                            modifier = Modifier.testTag("quick_custom_provider_chip_${profile.id}")
-                        )
-                    }
-                    if (activeCustomProvider != null && effectiveSaveCustom != null) {
-                        FilterChip(
-                            selected = false,
-                            onClick = {
-                                editingCustomProfile = activeCustomProvider
-                                showRegisterCustomDialog = true
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                            },
-                            label = { Text("Edit") },
-                            modifier = Modifier.testTag("edit_active_custom_api_chip")
-                        )
-                    }
-                }
-            }
-
             if (isExternalRest && !apiReady) {
                 Surface(
                     color = MaterialTheme.colorScheme.tertiaryContainer,
@@ -505,7 +468,8 @@ fun AiModelSelectorBar(
 
             if (showAdvancedApiConfig && isExternalRest) {
                 if (effectiveSelectEndpoint != null) {
-                    val activeSiteLabel = AiModelDefaults.presetWebsiteEndpoints
+                    val activeSiteLabel = activeCustomProvider?.name?.takeIf { it.isNotBlank() }
+                        ?: AiModelDefaults.presetWebsiteEndpoints
                         .firstOrNull { (_, u) -> endpointUrl.equals(u, ignoreCase = true) }?.first
                         ?: "Custom Endpoint"
                     Box(modifier = Modifier.fillMaxWidth()) {
@@ -541,6 +505,27 @@ fun AiModelSelectorBar(
                                     },
                                     modifier = Modifier.testTag("ai_website_preset_${siteLabel.lowercase()}")
                                 )
+                            }
+                            if (customProviders.isNotEmpty()) {
+                                HorizontalDivider()
+                                customProviders.forEach { profile ->
+                                    DropdownMenuItem(
+                                        text = { Text("${profile.name} (${profile.displayHost()})") },
+                                        leadingIcon = {
+                                            if (activeCustomProviderId == profile.id) {
+                                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            }
+                                        },
+                                        onClick = {
+                                            showEndpointMenu = false
+                                            draftEndpoint = profile.endpointUrl
+                                            if (effectiveSelectCustom != null) effectiveSelectCustom(profile.id)
+                                            else effectiveSelectEndpoint(profile.endpointUrl)
+                                            curlFeedback = "Switched website provider to ${profile.name}."
+                                        },
+                                        modifier = Modifier.testTag("ai_website_custom_${profile.id}")
+                                    )
+                                }
                             }
                         }
                     }

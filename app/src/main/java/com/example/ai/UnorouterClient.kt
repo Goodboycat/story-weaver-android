@@ -147,6 +147,11 @@ object UnorouterClient {
                 )
             }
 
+            if (apiKeyOverride.isBlank() && !AiModelDefaults.isBuiltInHost(resolvedUrl)) {
+                return@withContext Result.failure(
+                    IllegalStateException("No API key saved for this website provider. Open AI Provider settings and add its key.")
+                )
+            }
             val apiKey = resolveApiKey(apiKeyOverride, provider)
             if (apiKey.isEmpty()) {
                 return@withContext Result.failure(
