@@ -218,7 +218,200 @@ def part_nature(A):
         o(n, flowers(col, len(n)), solid=0)
     o('reeds', reeds(), solid=0); o('reeds_dry', reeds('#b0a060'), solid=0); o('lilypad', lilypad(), solid=0); o('lilypad_flower', lilypad(flower='#f8a0c8'), solid=0)
 
-PARTS = [part_nature]
+# ------------------------------------------------------------------ village (2b)
+GOLD = '#e8b830'; IRON = '#7d8494'; DARKWOOD = '#5a3a26'; CLOTH = '#c8b080'
+FIRE = ((255, 240, 150), (250, 180, 50), (230, 90, 30))
+ICO = {'W': (248, 244, 232), 'Y': (240, 200, 60), 'R': (216, 60, 70), 'S': (70, 76, 92), 'B': (80, 130, 230), 'N': (150, 90, 40), 'n': (226, 170, 90),
+       'G': (70, 160, 80), 'D': (60, 40, 30)}
+ICONS = {'text': ('DDDDDD', '......', 'DDDD.D', '......', 'DD.DDD'), 'inn': ('.WWWW.', 'YYYYDD', 'YYYY.D', 'YYYYDD', 'YYYY..'),
+         'smith': ('SSSSSS', '.SSSSS', '..SS..', '.SSSS.', 'SSSSSS'), 'potion': ('..WW..', '..SS..', '.RRRR.', 'RRWRRR', '.RRRR.'),
+         'food': ('......', '.nnnn.', 'nNnNnn', 'NNNNNN', '......'), 'none': ()}
+
+def px(c, pts, col):
+    for x, y in pts: c.p(x, y, col)
+
+def icon(c, name, ox, oy):
+    for j, row in enumerate(ICONS[name]):
+        for i, ch in enumerate(row):
+            if ch != '.': c.p(ox + i, oy + j, ICO[ch])
+
+def flame(c, cx, y, h=5):
+    """flame 4px wide, base row y, centre columns cx..cx+1"""
+    for i in range(h):
+        half = 1 if i < h - 2 else 0
+        for x in range(cx - half, cx + 2 + half):
+            if i == h - 1 and x != cx + (y % 2): continue
+            c.p(x, y - i, FIRE[0] if (x in (cx, cx + 1) and i < 2) else FIRE[1] if (x in (cx, cx + 1) or i == 0) else FIRE[2])
+
+def glow(c, cx, cy, r, col=(255, 220, 120), al=70):
+    for y in range(int(cy - r), int(cy + r) + 1):
+        for x in range(int(cx - r), int(cx + r) + 1):
+            if (x - cx) ** 2 + (y - cy) ** 2 <= r * r and not c.get(x, y): c.p(x, y, col, al)
+
+def sign(ic='text', board='#b98a55', hang=False):
+    c = C()
+    if hang:
+        c.box(1, 1, 2, 14, DARKWOOD); c.rect(3, 2, 13, 2, ramp(IRON)[1]); px(c, ((6, 3), (12, 3)), ramp(IRON)[3]); c.box(4, 4, 14, 11, board); icon(c, ic, 6, 5)
+        return fin(c, (14, 1, 6))
+    c.box(7, 10, 8, 14, DARKWOOD); c.box(2, 2, 13, 10, board); icon(c, ic, 5, 4)
+    return fin(c, (14, 5, 10))
+
+def sign_arrow():
+    c = C(); c.box(7, 3, 8, 14, DARKWOOD); c.box(2, 4, 11, 8, '#b98a55'); r = ramp('#b98a55')
+    px(c, ((12, 5), (12, 6), (13, 6)), r[2]); c.p(12, 7, r[1]); c.rect(4, 6, 9, 6, ICO['D'])
+    return fin(c, (14, 5, 10))
+
+def well(roof=None):
+    c = C(16, 32); s = ramp(STONE); c.box(2, 20, 13, 29, STONE)
+    for y in (23, 26): c.rect(2, y, 13, y, s[1])
+    for x, y in ((5, 21), (10, 21), (7, 24), (12, 24), (4, 27), (9, 27)): c.rect(x, y, x, y + 1, s[1])
+    c.ell(7.5, 20, 6.3, 3, '#a8abb4'); c.ell(7.5, 20, 4.3, 1.7, '#2f5fc0', flat=True); px(c, ((6, 20), (7, 19)), (150, 200, 250))
+    top = 6 if roof else 11
+    c.box(2, top, 3, 19, DARKWOOD); c.box(12, top, 13, 19, DARKWOOD); c.box(2, top, 13, top + 1, WOOD)
+    c.line(7, top + 2, 7, 15, CLOTH and (200, 180, 130)); c.box(6, 15, 9, 18, WOOD); c.rect(6, 16, 9, 16, ramp(IRON)[1])
+    if roof:
+        c.tri(7.5, 0, 6, 8, roof); r = ramp(roof)
+        for y in (3, 5): px(c, [(x, y) for x in range(16) if c.get(x, y) and (x + y) % 3 == 0], r[1])
+    else: px(c, ((14, top), (15, top), (15, top + 1), (15, top + 2)), ramp(IRON)[2])
+    return fin(c, (30, 2, 13))
+
+def crate(wood='#b07a44'):
+    c = C(); c.box(2, 4, 13, 13, wood); w = ramp(wood); c.box(3, 5, 12, 12, w)
+    for x in (6, 9): c.rect(x, 6, x, 11, w[1])
+    c.line(4, 11, 11, 6, w[0]); c.box(2, 4, 13, 5, w[3:] + w[2:3] + w[1:2] + w[:1] if False else wood); c.rect(2, 12, 13, 13, w[1])
+    px(c, ((3, 4), (12, 4), (3, 13), (12, 13)), ramp(IRON)[1])
+    return fin(c, (14, 2, 13))
+
+def barrel(wood='#9a6238', top=None):
+    c = C(); c.ell(7.5, 9, 5, 5.6, wood); c.rect(4, 4, 11, 4, ramp(wood)[2]); w = ramp(wood)
+    for x in (5, 8, 10): c.rect(x, 6, x, 12, w[1])
+    for y in (6, 12): px(c, [(x, y) for x in range(16) if c.get(x, y)], ramp(IRON)[1]); c.p(5, y, ramp(IRON)[3])
+    c.ell(7.5, 4, 4, 1.6, top or '#c89860', flat=True); px(c, ((6, 4), (9, 4)) if not top else ((6, 3),), ramp(top or '#c89860')[4 if top else 1])
+    return fin(c, (14, 3, 12))
+
+def sack(col=CLOTH, grain=None):
+    c = C(); c.ell(7.5, 10, 5, 4, col); r = ramp(col)
+    if grain: c.ell(7.5, 6.5, 3.4, 1.5, grain, flat=True); px(c, ((6, 6), (9, 7), (8, 6)), ramp(grain)[4]); px(c, ((4, 7), (11, 7)), r[3])
+    else: c.box(6, 5, 9, 6, col); px(c, ((5, 4), (7, 3), (9, 4), (10, 3)), r[3]); c.rect(6, 7, 9, 7, (150, 90, 40))
+    px(c, ((5, 10), (6, 12), (10, 11)), r[1])
+    return fin(c, (14, 3, 12))
+
+def pot(col='#b8683a', tall=False, broken=False, band=None):
+    c = C()
+    if tall: c.ell(7.5, 9.5, 3.6, 4.6, col); c.box(5, 3, 10, 4, col); c.rect(6, 5, 9, 5, ramp(col)[1])
+    else: c.ell(7.5, 10, 4.6, 3.8, col); c.box(5, 5, 10, 6, col)
+    y = 3 if tall else 5; c.rect(6, y, 9, y, ramp(col)[0])
+    if band: px(c, [(x, 9) for x in range(16) if c.get(x, 9)], ramp(band)[2]); px(c, [(x, 10) for x in range(16) if c.get(x, 10) and x % 2], ramp(band)[3])
+    if broken:
+        for x, yy in ((9, 5), (10, 5), (10, 6), (9, 6), (11, 7), (10, 7), (11, 8), (8, 5)): c.clear(x, yy)
+        px(c, ((9, 7), (10, 8), (9, 8)), ramp(col)[0]); px(c, ((13, 13), (12, 12), (13, 12)), ramp(col)[2])
+    return fin(c, (14, 4, 11))
+
+def chest(body=WOOD, trim=IRON, opened=False):
+    c = C(); b = ramp(body); t = ramp(trim)
+    if opened:
+        c.box(2, 1, 13, 6, b[:1] + b[:4]); c.rect(3, 2, 12, 5, b[0]); c.rect(3, 6, 12, 8, (30, 22, 30))
+        px(c, ((4, 7), (6, 6), (8, 7), (10, 6), (11, 7)), FIRE[0]); px(c, ((5, 7), (9, 7), (7, 6)), ICO['Y']); c.box(2, 9, 13, 13, body)
+    else:
+        c.box(2, 4, 13, 8, b[1:] + b[4:]); c.clear(2, 4); c.clear(13, 4); c.box(2, 8, 13, 13, body); c.rect(2, 8, 13, 8, b[0])
+    for x in (3, 12): c.rect(x, 9 if opened else 4, x, 13, t[2]); c.p(x, 9 if opened else 5, t[4])
+    c.rect(2, 13, 13, 13, t[1]); y = 10 if opened else 8; c.box(7, y, 8, y + 2, GOLD); c.p(7, y + 1, (40, 30, 30))
+    return fin(c, (14, 2, 13))
+
+def torch(wall=False):
+    c = C()
+    if wall: thick(c, 5, 14, 7, 8, WOOD); c.box(6, 7, 9, 8, IRON); flame(c, 7, 6)
+    else: c.box(7, 8, 8, 14, WOOD); c.box(6, 6, 9, 7, IRON); px(c, ((6, 14), (9, 14)), ramp(WOOD)[1]); flame(c, 7, 5)
+    fin(c, None if wall else (15, 5, 10)); glow(c, 7.5, 4, 4.2)
+    return c
+
+def campfire(lit=True):
+    c = C(); thick(c, 3, 12, 11, 9, WOOD); thick(c, 3, 9, 11, 12, DARKWOOD)
+    for x, y in ((2, 13), (5, 14), (9, 14), (12, 13), (13, 10), (1, 10)): c.box(x, y, x + 1, y, STONE)
+    if lit: flame(c, 7, 10, 7); px(c, ((5, 9), (10, 8)), FIRE[2])
+    else: px(c, ((6, 10), (7, 11), (9, 10), (8, 9)), (60, 56, 64)); px(c, ((7, 10),), FIRE[2]); px(c, ((7, 6), (8, 4), (7, 2)), (200, 200, 210))
+    fin(c)
+    if lit: glow(c, 7.5, 8, 6.5)
+    return c
+
+def lamp_post(lit=True, col='#3a3f4c'):
+    c = C(16, 32); c.box(7, 11, 8, 29, col); c.box(5, 28, 10, 30, col); c.box(6, 10, 9, 11, col); c.box(4, 3, 11, 9, col)
+    c.rect(5, 4, 10, 8, (250, 224, 110) if lit else (120, 136, 160)); c.rect(7, 4, 8, 8, (255, 248, 200) if lit else (150, 166, 190)); c.tri(7.5, 0, 3, 5, col)
+    fin(c, (30, 4, 11))
+    if lit: glow(c, 7.5, 6, 7.5, al=55)
+    return c
+
+def hay_bale():
+    c = C(); h = '#d8b84a'; c.box(2, 5, 13, 13, h); speck(c, h, 3, 0.22)
+    for x in (5, 10): c.rect(x, 5, x, 13, (150, 90, 40))
+    px(c, ((1, 12), (14, 11), (1, 8), (14, 6)), ramp(h)[3])
+    return fin(c, (14, 2, 13))
+
+def cart(load=None):
+    c = C(32, 16); c.box(4, 4, 25, 10, '#a8703a'); w = ramp('#a8703a')
+    for x in (9, 14, 19): c.rect(x, 5, x, 9, w[1])
+    thick(c, 26, 8, 31, 6, DARKWOOD)
+    if load: c.ell(14.5, 4, 9.5, 2.6, load); speck(c, load, 5, 0.2)
+    for cx in (8.5, 21.5):
+        c.ell(cx, 11, 3.6, 3.6, DARKWOOD); c.ell(cx, 11, 2, 2, '#b98a55', flat=True); c.p(int(cx), 11, ICO['D']); c.p(int(cx) + 1, 11, ICO['D'])
+    return fin(c, (15, 4, 26))
+
+def fence_gate(opened=False):
+    c = C(); c.box(1, 3, 2, 13, DARKWOOD); c.box(13, 3, 14, 13, DARKWOOD)
+    if opened: c.box(3, 2, 4, 12, WOOD); c.box(4, 4, 6, 5, WOOD); c.box(4, 9, 6, 10, WOOD); c.p(12, 8, ramp(IRON)[2])
+    else:
+        for y in (5, 10): c.box(3, y, 12, y + 1, WOOD)
+        c.line(3, 10, 12, 6, ramp(WOOD)[1]); c.line(3, 9, 12, 5, ramp(WOOD)[3]); px(c, ((11, 8), (12, 8)), ramp(IRON)[3])
+    return fin(c, (14, 1, 14))
+
+def mailbox(col='#c03c3c'):
+    c = C(); c.box(7, 9, 8, 14, DARKWOOD); c.box(3, 4, 12, 9, col); c.clear(3, 4); c.clear(12, 4); c.rect(5, 6, 9, 6, (40, 30, 30))
+    px(c, ((13, 4), (13, 5), (13, 6), (14, 4)), ICO['Y'])
+    return fin(c, (14, 5, 10))
+
+def bench(wood='#a8703a'):
+    c = C(); c.box(2, 4, 13, 6, wood); c.box(2, 8, 13, 10, wood); w = ramp(wood)
+    for x in (3, 12): c.rect(x, 7, x, 7, w[1]); c.box(x - (x > 8), 11, x + (x < 8), 13, DARKWOOD)
+    for x in (6, 9): c.rect(x, 4, x, 6, w[1])
+    return fin(c, (14, 2, 13))
+
+def scarecrow():
+    c = C(16, 32); c.box(7, 12, 8, 30, DARKWOOD); c.box(1, 13, 14, 14, DARKWOOD); c.box(4, 12, 11, 21, '#a85a3a')
+    for x in (4, 6, 9, 11): c.rect(x, 22, x, 23, ICO['Y'])
+    c.rect(4, 17, 11, 17, (90, 60, 40)); c.box(5, 14, 6, 15, '#4a8ac0'); c.ell(7.5, 7.5, 3.6, 3.6, '#d8c080'); px(c, ((6, 7), (9, 7)), ICO['D'])
+    px(c, ((6, 9), (7, 10), (8, 10), (9, 9)), ICO['D']); c.tri(7.5, 0, 4, 3.2, '#7a5a2a'); c.box(2, 4, 13, 4, '#7a5a2a')
+    px(c, ((0, 12), (0, 14), (0, 15), (15, 12), (15, 14), (15, 15), (1, 15), (14, 15)), ICO['Y'])
+    return fin(c, (30, 4, 11))
+
+def trough(fill='#3f78d8'):
+    c = C(); c.box(1, 7, 14, 12, '#8a5a34'); c.rect(2, 8, 13, 9, hx(fill)); px(c, ((4, 8), (5, 8), (9, 9)), ramp(fill)[4])
+    c.box(2, 13, 3, 13, DARKWOOD); c.box(12, 13, 13, 13, DARKWOOD)
+    return fin(c, (14, 2, 13))
+
+def woodpile():
+    c = C()
+    for cx, cy in ((3.5, 11.5), (7.5, 11.5), (11.5, 11.5), (5.5, 8), (9.5, 8), (7.5, 4.5)):
+        c.ell(cx, cy, 2.4, 2.4, WOOD, flat=True); c.ell(cx, cy, 1.5, 1.5, '#d9b77e', flat=True); c.p(int(cx), int(cy), ramp('#d9b77e')[1])
+    return fin(c, (14, 2, 13))
+
+def part_village(A):
+    A.section('props_village'); o = lambda n, c, **m: A.obj(n, c, cat='village', **m)
+    for n, c in (('sign_wood', sign()), ('sign_blank', sign('none')), ('sign_post_e', sign_arrow()), ('sign_post_w', sign_arrow().flip()),
+                 ('sign_inn', sign('inn', hang=True)), ('sign_smith', sign('smith', hang=True)), ('sign_potion', sign('potion', hang=True)),
+                 ('sign_food', sign('food', hang=True)), ('well_stone', well()), ('well_roof', well('#b04a3a')), ('well_roof_blue', well('#4a6ab0')),
+                 ('crate', crate()), ('crate_dark', crate('#6a4a34')), ('barrel', barrel()), ('barrel_water', barrel(top='#3f78d8')),
+                 ('barrel_dark', barrel('#5a4038')), ('sack', sack()), ('sack_grain', sack(grain='#e0b040')), ('sack_flour', sack('#e8e0d0', '#f8f8f0')),
+                 ('pot', pot()), ('pot_tall', pot(tall=True)), ('pot_blue', pot('#4a78b8', band='#f0e0a0')), ('pot_broken', pot(broken=True)),
+                 ('chest_wood_closed', chest()), ('chest_wood_open', chest(opened=True)), ('chest_iron_closed', chest(IRON, '#4a5060')),
+                 ('chest_iron_open', chest(IRON, '#4a5060', True)), ('chest_gold_closed', chest(GOLD, '#b06a18')), ('chest_gold_open', chest(GOLD, '#b06a18', True)),
+                 ('torch_stand', torch()), ('campfire_lit', campfire()), ('campfire_out', campfire(False)), ('lamp_post', lamp_post(False)),
+                 ('lamp_post_lit', lamp_post()), ('hay_bale', hay_bale()), ('cart', cart()), ('cart_hay', cart('#d8b84a')), ('cart_goods', cart('#a06a8a')),
+                 ('fence_gate_closed', fence_gate()), ('mailbox', mailbox()), ('bench', bench()), ('scarecrow', scarecrow()),
+                 ('trough_water', trough()), ('trough_feed', trough('#c8a040')), ('woodpile', woodpile())):
+        o(n, c, solid=1)
+    o('torch_wall', torch(True), solid=0); o('fence_gate_open', fence_gate(True), solid=0)
+
+PARTS = [part_nature, part_village]
 
 def build(A):
     for p in PARTS: p(A)

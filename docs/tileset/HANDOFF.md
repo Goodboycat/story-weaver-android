@@ -36,6 +36,8 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
 - `tools/tileset/props.py`  objects. One `part_xxx(A)` function per task, appended to `PARTS`.
   Helpers: `speck` (leaf noise), `cap` (snow/moss top), `thick` (thick line), `fin` (outline+shadow),
   `trunk`. Register with `A.obj(name, canvas, cat='..', solid=0|1)`; canvas size = multiples of 16.
+- `tools/tileset/preview.py`  `python3 tools/tileset/preview.py <cat> [scale] [cols]` -> `/tmp/preview_<cat>.png`:
+  zoomed sheet of ONE category. Use this to review a new part (props.png is too small to judge).
 - `tools/tileset/demo_extra.py`  props placed on the demo map (`get`) + contact sheet of every
   object on grass (`sheet` -> `docs/tileset/props.png`, 3x scale). Review that image after each task.
 - Outputs: `app/src/main/assets/tileset/master.png` (the master sheet), `atlas.json`
@@ -48,15 +50,16 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     golden, cherry, apple, snowy_oak, blight, fey, pine, pine_dark, snowy, palm, dead, dead_ash,
     crystal x3, giant_mushroom x3), 5 boulders 2x2, 2 cacti 1x2, 2 logs 2x1, 10 bushes, 9 rocks
     (3 ore), 3 stumps, 3 mushrooms, 8 flowers, reeds x2, lilypads x2. Sheet is now 2111 tiles.
+2b. Props / village (`part_village`, 47 objects, cat `village`): signs (wood, blank, post_e/w, hanging inn/smith/
+    potion/food), wells 1x2 (stone, roof, roof_blue), crates, barrels, sacks, pots, chests wood/iron/gold
+    `_closed`/`_open`, torch_stand, torch_wall, campfire_lit/out, lamp_post(_lit) 1x2, hay_bale, carts 2x1,
+    fence_gate_closed/open, mailbox, bench, scarecrow 1x2, troughs, woodpile. New helpers in props.py: `px`
+    (pixel list), `icon` (6x5 pixel-art glyph from `ICONS`), `flame`, `glow` (alpha halo, call AFTER `fin`).
 
 ## TODO (in order, one task per chat)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
 ### 2. Props (rest) - `props.py`, one `part_*` each
-- 2b. `part_village` (cat `village`): signs (wood, post, shop boards: inn/smith/potion/food),
-  wells (stone, wood roof; 1x2), crates, barrels, sacks, pots, chests wood/iron/gold closed+open,
-  torches (standing, wall), campfire lit/out, lamp posts 1x2, hay bale, cart 2x1, fence gate,
-  mailbox, bench, scarecrow 1x2, water trough, woodpile.
 - 2c. `part_monument` (cat `monument`): graves (stone, cross, broken, mossy), statues 1x2 (knight,
   mage, king, angel-less "guardian", broken), pillars 1x2 (stone, marble, broken, dark, vine),
   obelisk, fountain 2x2, shrine, standing stones, rubble piles.
