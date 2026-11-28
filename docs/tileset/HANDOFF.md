@@ -203,6 +203,10 @@ A8. 9d art polish (part 2): `stairs_*` have tapered side stringers (perspective)
     - 11i. Beta pass 2 (long names): list rows already give the name column `weight(1f)`, so buttons stay on screen.
       Fixed-height top bars (story screen, character sheet) now switch to `titleSmall` + 2 lines for long names instead of
       3 clipped lines; the Map "synced location" chip is capped at 170dp wide.
+    - 11j. Beta pass 3 (Map tab state): `aiUndoSnapshot`, `rectStart`, `selectedTokenId`, `selectedBgLayerId` are now
+      `remember(story.id, story.activeMapId)` - before, "Undo AI" pressed after switching saved maps overwrote the NEW map
+      with the old map's tiles, and a token selection / half-drawn rectangle leaked into the next map. Checked OK: eraser on
+      an empty cell (no sync when nothing changed), resize (cells cropped, tokens clamped), paint outside bounds (ignored).
 
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
@@ -221,8 +225,11 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 - 11e. Reuse in the import / edit AI paths too: append `existingUnitsBlock(false)` in `parseCharactersWithAi`,
   `parseWorldItemsWithAi` (AiParserService) and pass the catalogue to `AiEditAssistService` (it is an `object`), so
   "import" does not duplicate a unit that already exists (match by name, case-insensitive -> update instead of add).
-- 11j. Beta-test pass 3: Map tab - undo after AI edit, resize with tokens outside the new bounds, eraser on empty cell,
-  saved map load while painting. Read the code paths, fix bugs.
+- 11l. Device test by the owner (see "Owner test list" below); fix what is reported.
+- 11m. Beta pass 4: Chat tab + Entities tab (pin dialog, reply, AI import with 0 results, image picker cancel), same
+  method as 11h/11j: read the code paths, list findings in DONE, fix real bugs only.
+- 11n. Beta pass 5: `StoryRepository` (Firestore writes over 1 MiB for big maps: `gridJson` of a 200x200 map; consider
+  a size guard + user message), offline behaviour.
 - 11k. Move the hint string + new texts to `Localization.kt`.
 - Worker note: the owner asked for a Qwen worker through the Genspark API. The sandbox key is a tool key (`gsk`), the
   Model API answers "accepts gmk API keys; create one in the developer portal" - no text-LLM worker is reachable. If the
@@ -245,3 +252,11 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 
 Not yet verified: the art has not been reviewed on a device; check `docs/tileset/demo.png` and
 `docs/tileset/props.png`.
+
+## Owner test list (after the 11a-11j pushes; APK = latest green run of "android-debug-apk")
+1. Map tab on a phone: blue banner "Swipe the tool bar sideways for more tools" above Pan/Paint/Erase; swipe -> it goes away.
+2. Give a character / location / saved map a very long name: the whole name shows (wraps), buttons still reachable.
+3. AI Map Architect: chip row "Use what you already made"; tap a character chip, generate -> the token has that
+   character's exact name + emoji. Also try typing the name without the chip.
+4. AI chat: ask "list my NPCs" / "put my existing monsters in a new encounter" -> it uses the campaign's own units.
+5. Generate with AI on map A, open saved map B: the "Undo AI" bar must be gone.

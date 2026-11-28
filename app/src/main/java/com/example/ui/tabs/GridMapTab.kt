@@ -224,12 +224,12 @@ fun GridMapTab(
     var selectedColorHex by remember { mutableStateOf<String?>("#334155") }
     var selectedEmoji by remember { mutableStateOf<String?>(null) }
     var selectedAssetBase64 by remember { mutableStateOf<String?>(null) }
-    var rectStart by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var rectStart by remember(story.id, story.activeMapId) { mutableStateOf<Pair<Int, Int>?>(null) }
     // Tileset brush: kind = tile | line | obj. When set it replaces the colour / emoji brush.
     var selectedTilePick by remember { mutableStateOf<TilePick?>(null) }
     var showTilePalette by remember { mutableStateOf(false) }
-    var selectedTokenId by remember { mutableStateOf<String?>(null) }
-    var selectedBgLayerId by remember { mutableStateOf<String?>(null) }
+    var selectedTokenId by remember(story.id, story.activeMapId) { mutableStateOf<String?>(null) }
+    var selectedBgLayerId by remember(story.id, story.activeMapId) { mutableStateOf<String?>(null) }
 
     var scale by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
@@ -240,7 +240,9 @@ fun GridMapTab(
     var showColorPaletteDialog by remember { mutableStateOf(false) }
     var showSaveMapDialog by remember { mutableStateOf(false) }
     var showSavedMapsDialog by remember { mutableStateOf(false) }
-    var aiUndoSnapshot by remember { mutableStateOf<AiMapUndoSnapshot?>(null) }
+    // Keyed by the active map: an undo snapshot taken on map A must never be applied after switching to map B
+    // (it would overwrite B with A's old tiles).
+    var aiUndoSnapshot by remember(story.id, story.activeMapId) { mutableStateOf<AiMapUndoSnapshot?>(null) }
     var showTokenPicker by remember { mutableStateOf(false) }
     var showGuide by remember { mutableStateOf(false) }
     var showMapEmojiPicker by remember { mutableStateOf(false) }
