@@ -816,7 +816,158 @@ def part_furniture(A):
     o('barrel_rack', barrel_rack()); o('weapon_rack_swords', weapon_rack()); o('weapon_rack_spears', weapon_rack('spears')); o('weapon_rack_mixed', weapon_rack('mixed'))
     o('plant_pot', plant_pot()); o('plant_pot_flower', plant_pot(flower='#e85a8a')); o('bathtub', bathtub())
 
-PARTS = [part_nature, part_village, part_monument, part_doors, part_furniture]
+# ------------------------------------------------------------------ dungeon (task 2f)
+BONE = '#e0d8c0'
+
+def spikes(up=True):
+    c = C(); i = ramp(IRON); c.box(1, 2, 14, 14, '#55525e'); c.rect(2, 3, 13, 13, ramp('#55525e')[1])
+    for y in (4, 8, 12):
+        for x in (3, 7, 11):
+            c.rect(x, y, x + 1, y, INK)
+            if up: c.rect(x, y - 2, x + 1, y - 1, i[3]); c.p(x + 1, y - 1, i[1]); c.p(x, y - 3, i[4])
+    return c
+
+def lever(right=False):
+    c = C(); c.box(4, 10, 11, 13, STONE); c.rect(6, 10, 9, 10, INK); thick(c, 7, 10, 3, 4, IRON); c.ell(3.5, 3.5, 1.6, 1.6, RED)
+    c = fin(c, (14, 4, 11))
+    return c.flip() if right else c
+
+def plate(down=False, col=STONE):
+    c = C(); r = ramp(col); c.rect(2, 3, 13, 13, r[0])
+    if down: c.box(3, 5, 12, 12, r[1:2] + r[:4]); c.rect(4, 6, 11, 11, r[1])
+    else: c.box(3, 3, 12, 11, col); c.rect(3, 12, 12, 12, r[1]); c.rect(5, 5, 10, 9, r[3]); c.rect(6, 6, 9, 8, r[2])
+    return c
+
+def cage(kind='empty'):
+    c = C(16, 32); i = ramp(IRON); c.box(1, 26, 14, 29, IRON); c.rect(2, 8, 13, 25, (20, 18, 28)); c.a[8:26, 2:14, 3] = 110
+    if kind == 'bones': c.ell(7.5, 22, 2.4, 2, BONE); px(c, ((7, 22), (9, 22)), INK); c.rect(4, 25, 11, 25, ramp(BONE)[2])
+    for x in (2, 5, 8, 11, 13): c.rect(x, 7, x, 25, i[3] if x % 2 else i[2])
+    c.box(1, 5, 14, 7, IRON); c.box(3, 3, 12, 5, IRON); c.rect(7, 0, 8, 2, i[2]); c.rect(1, 16, 14, 16, i[1])
+    return fin(c, (30, 2, 13))
+
+def web(k=0):
+    c = C(); w = (236, 236, 244)
+    for x1, y1 in ((15, 0), (14, 6), (9, 10), (5, 14), (0, 15)): c.line(0, 0, x1, y1, w)
+    for r_ in (5, 9, 13):
+        pts = [(r_, 0), (int(r_ * .86), int(r_ * .36)), (int(r_ * .62), int(r_ * .62)), (int(r_ * .36), int(r_ * .86)), (0, r_)]
+        for a, b in zip(pts, pts[1:]): c.line(a[0], a[1], b[0], b[1], w)
+    c.a[:, :, 3] = np.where(c.a[:, :, 3] > 0, 200, 0)
+    return c.rot(-k)
+
+def bones(kind='pile'):
+    c = C(); b = ramp(BONE)
+    if kind == 'skull': c.ell(7.5, 8, 3.6, 3.2, BONE); c.rect(6, 11, 9, 12, b[2]); px(c, ((6, 8), (9, 8), (6, 9), (9, 9)), INK); c.p(7, 10, INK); px(c, ((6, 12), (8, 12)), b[0])
+    elif kind == 'skulls':
+        for cx, cy in ((4.5, 10), (10.5, 10), (7.5, 6)): c.ell(cx, cy, 3, 2.8, BONE); px(c, ((int(cx - 1), int(cy)), (int(cx + 2), int(cy))), INK); c.p(int(cx + .5), int(cy + 2), b[0])
+    elif kind == 'ribs':
+        c.rect(3, 6, 12, 6, b[3])
+        for x in (4, 6, 8, 10): c.rect(x, 7, x, 11, b[2]); c.p(x, 12, b[1])
+        c.ell(13, 6, 1.6, 1.6, BONE)
+    else:
+        thick(c, 3, 11, 11, 7, BONE); thick(c, 4, 7, 11, 12, BONE); px(c, ((2, 11), (3, 12), (12, 6), (12, 8), (3, 6), (4, 6), (12, 12), (12, 13)), b[4]); c.ell(7.5, 12, 2, 1.4, BONE)
+    return fin(c, (14, 3, 12))
+
+def chains(kind='hang'):
+    c = C(); i = ramp(IRON)
+    for x in ((4, 11) if kind != 'single' else (7,)):
+        for y in range(0, 12, 2): c.p(x, y, i[3]); c.p(x + (y // 2) % 2 * 0 + 1, y + 1, i[1]) if 0 else c.p(x, y + 1, i[1])
+        if kind == 'shackle': c.box(x - 1, 11, x + 1, 13, IRON); c.p(x, 12, INK)
+        else: c.p(x, 12, i[4])
+    return c.outline()
+
+def portal(col='#58a8f0', frame=STONE, sz=32):
+    c = C(16, sz); r = ramp(col); cy = sz / 2 + (1 if sz == 32 else 0); ry = sz / 2 - 3
+    c.ell(7.5, cy, 6.6, ry, frame); c.ell(7.5, cy, 4.8, ry - 2, r[1:2] * 5, flat=True)
+    for y in range(sz):
+        for x in range(16):
+            nx, ny = (x - 7.5) / 4.8, (y - cy) / (ry - 2); d = nx * nx + ny * ny
+            if d < 1: v = (math.atan2(ny, nx) * 1.6 + d * 5) % 3; c.p(x, y, r[4] if v < 0.7 else r[3] if v < 1.5 else r[2] if d > .25 else r[4])
+    if sz == 32: c.box(2, 27, 13, 29, frame); px(c, ((3, 9), (12, 9), (2, 17), (13, 17), (7, 3), (8, 3)), RUNE)
+    fin(c, (sz - 2, 2, 13)); glow(c, 7.5, cy, 8.5, r[3], 50)
+    return c
+
+def rift(col='#b860e8'):
+    c = C(16, 32); r = ramp(col); pts = ((8, 2), (6, 8), (9, 13), (6, 19), (8, 24), (7, 29))
+    for k, ((a, b), (d, e)) in enumerate(zip(pts, pts[1:])):
+        for w in range(-2, 3):
+            if k in (0, 4) and abs(w) == 2: continue
+            c.line(a + w, b, d + w, e, r[4] if w == 0 else r[3] if abs(w) == 1 else r[1])
+    for x, y in ((3, 6), (12, 10), (2, 16), (12, 21), (4, 26)): c.p(x, y, r[4])
+    c.outline(); glow(c, 7.5, 15, 7, r[3], 45)
+    return c
+
+def rune_circle(col=RUNE):
+    """arcane ring: two rings, a square + diamond knot, 8 rune ticks (deliberately NOT a pentagram)"""
+    c = C(32, 32); d = tuple(int(v * .6) for v in col); E = lambda a, rx, ry: (round(15.5 + rx * math.cos(math.radians(a))), round(15.5 + ry * math.sin(math.radians(a))))
+    for a in range(360): c.p(*E(a, 13, 11.5), col); c.p(*E(a, 10, 8.8), d)
+    for off, cc in ((0, col), (45, d)):
+        P = [E(off + 90 * k, 10, 8.8) for k in range(5)]
+        for a, b in zip(P, P[1:]): c.line(a[0], a[1], b[0], b[1], cc)
+    for k in range(8): c.p(*E(k * 45 + 22, 11.5, 10.2), (255, 255, 255))
+    c.ell(15.5, 15.5, 2, 1.6, [col] * 5, flat=True); glow(c, 15.5, 15.5, 4.5, col, 60)
+    return c
+
+def brazier(lit=True, fire=FIRE):
+    c = C(); thick(c, 5, 8, 4, 13, IRON); thick(c, 9, 8, 10, 13, IRON); c.box(7, 8, 8, 13, IRON); c.box(3, 6, 12, 8, '#5a5f6c'); c.rect(4, 6, 11, 6, INK)
+    if lit:
+        for x in range(4, 12): c.p(x, 6, fire[2]); c.p(x, 5 - (x % 2), fire[1])
+        px(c, ((6, 4), (7, 3), (8, 4), (9, 3), (7, 2), (8, 2)), fire[1]); px(c, ((7, 4), (8, 5), (7, 5), (8, 3), (6, 5), (9, 5)), fire[0]); c.p(8, 1, fire[2])
+    else: px(c, ((5, 6), (7, 6), (10, 6)), (90, 84, 90))
+    fin(c, (14, 4, 11))
+    if lit: glow(c, 7.5, 3.5, 4.2, fire[1], 60)
+    return c
+
+def sarcophagus(col=STONE, trim=GOLD, opened=False):
+    c = C(16, 32); r = ramp(col); t = ramp(trim); c.box(2, 3, 13, 28, col); c.rect(2, 27, 13, 28, r[0])
+    if opened: c.rect(4, 5, 11, 25, INK); c.ell(7.5, 8, 2, 2, BONE); px(c, ((7, 8), (9, 8)), INK); c.rect(6, 11, 9, 17, ramp(BONE)[1]); c.rect(7, 11, 7, 22, ramp(BONE)[3])
+    else:
+        c.box(3, 4, 12, 25, r[2:] + r[3:]); c.ell(7.5, 8.5, 2.6, 2.8, trim); px(c, ((6, 8), (9, 8)), INK); c.rect(5, 12, 10, 12, t[2]); c.rect(7, 12, 8, 21, t[2]); c.rect(5, 16, 10, 16, t[3]); c.rect(4, 23, 11, 23, t[1])
+    return fin(c, (30, 2, 13))
+
+def iron_gate(opened=False):
+    c = C(); i = ramp(IRON)
+    if opened:
+        for x in (0, 1, 14, 15): c.rect(x, 1, x, 14, i[3 if x in (0, 14) else 1])
+        for x in range(2, 14, 3): c.rect(x, 0, x + 1, 2, i[2]); c.p(x, 3, i[4])
+        return c.outline()
+    for x in range(1, 15, 3): c.rect(x, 0, x + 1, 14, i[3]); c.rect(x + 1, 0, x + 1, 14, i[1])
+    for y in (3, 10): c.rect(0, y, 15, y, i[2]); c.rect(0, y + 1, 15, y + 1, i[0])
+    return c.outline()
+
+def crystals(col='#58c8f0', glowing=True):
+    c = C(); r = ramp(col)
+    for cx, y0, h in ((4, 6, 2), (11, 5, 2), (7.5, 1, 3)): c.tri(cx, y0, 13, h, r); c.line(int(cx), y0 + 1, int(cx), 12, r[4])
+    c.ell(7.5, 13, 5.5, 1.4, DARKSTONE, flat=True)
+    fin(c, (14, 3, 12))
+    if glowing: glow(c, 7.5, 8, 7, r[3], 40)
+    return c
+
+def stalagmite(col='#6a6470', big=False, tip=None):
+    c = C(16, 32 if big else 16); H = c.h; r = ramp(col)
+    c.tri(7.5, 2, H - 3, 4.4 if big else 3.6, r); c.tri(3.5, H - 9, H - 3, 2, r); c.tri(12, H - 7, H - 3, 1.8, r)
+    for y in range(5, H - 4, 3): c.p(7 + (y % 2), y, r[1]); c.p(6, y + 1, r[4])
+    if tip: cap(c, tip, 2, 5, H // 2)
+    return fin(c, (H - 2, 3, 12))
+
+def part_dungeon(A):
+    A.section('props_dungeon'); o = lambda n, c, s=0: A.obj(n, c, cat='dungeon', solid=s)
+    o('spikes_up', spikes()); o('spikes_down', spikes(False)); o('lever_left', lever(), 1); o('lever_right', lever(True), 1)
+    o('pressure_plate_up', plate()); o('pressure_plate_down', plate(True)); o('pressure_plate_gold_up', plate(col=GOLD)); o('pressure_plate_gold_down', plate(True, GOLD))
+    o('cage', cage(), 1); o('cage_bones', cage('bones'), 1)
+    for k, d in enumerate(('nw', 'ne', 'se', 'sw')): o('web_' + d, web(k))
+    for k in ('pile', 'skull', 'skulls', 'ribs'): o('bones_' + k if k != 'skulls' else 'skull_pile', bones(k))
+    o('chains', chains()); o('chains_shackle', chains('shackle')); o('chain_single', chains('single'))
+    for n, col in (('blue', '#58a8f0'), ('green', '#58d878'), ('purple', '#b860e8'), ('red', '#e86058'), ('gold', '#f0c848')):
+        o('portal_' + n, portal(col), 0); o('portal_small_' + n, portal(col, DARKSTONE, 16), 0)
+    o('rift', rift()); o('rift_void', rift('#5858c8')); o('rift_light', rift('#f0e8a0'))
+    o('rune_circle', rune_circle()); o('rune_circle_red', rune_circle((250, 110, 100))); o('rune_circle_gold', rune_circle((250, 210, 100))); o('rune_circle_green', rune_circle((120, 240, 140)))
+    o('brazier_lit', brazier(), 1); o('brazier_out', brazier(False), 1); o('brazier_blue', brazier(fire=((220, 250, 255), (100, 190, 250), (50, 100, 220))), 1); o('brazier_green', brazier(fire=((230, 255, 200), (120, 230, 110), (40, 150, 70))), 1)
+    o('sarcophagus', sarcophagus(), 1); o('sarcophagus_open', sarcophagus(opened=True), 1); o('sarcophagus_sand', sarcophagus('#c8a868', '#3a8ab8'), 1); o('sarcophagus_dark', sarcophagus(DARKSTONE, '#b8bcc8'), 1)
+    o('iron_gate_closed', iron_gate(), 1); o('iron_gate_open', iron_gate(True))
+    for n, col in (('blue', '#58c8f0'), ('purple', '#b070e8'), ('green', '#60d890'), ('red', '#e86870')): o('crystal_cluster_' + n, crystals(col), 1)
+    o('stalagmite', stalagmite(), 1); o('stalagmite_big', stalagmite(big=True), 1); o('stalagmite_ice', stalagmite('#88b8d8', tip=SNOW), 1); o('stalagmite_ice_big', stalagmite('#88b8d8', True, SNOW), 1); o('stalagmite_moss', stalagmite(tip=MOSS), 1)
+
+PARTS = [part_nature, part_village, part_monument, part_doors, part_furniture, part_dungeon]
 
 def build(A):
     for p in PARTS: p(A)

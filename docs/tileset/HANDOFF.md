@@ -69,14 +69,16 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     (line-like: l + m.. + r), stove, fireplaces, thrones 1x2 x4, altars x3, anvil, forge_lit/out, cauldrons x4, looms,
     rug_round_* 1x1 + rug_* 2x2 (solid=0, no outline), wardrobes, mirrors, barrel_rack 2x1, weapon_rack x3,
     plant pots, bathtub 2x1. Shared colours: LINEN, RED, BLUE, GREEN, PURPLE, LIGHTWOOD, INK.
+2f. Props / dungeon (`part_dungeon`, 57 objects, cat `dungeon`): spikes_up/down, lever_left/right, pressure_plate(_gold)_up/down,
+    cage(_bones) 1x2, web_{nw,ne,se,sw}, bones_pile/skull/ribs, skull_pile, chains x3, portal_{blue,green,purple,red,gold} 1x2 +
+    portal_small_* 1x1, rift x3 1x2, rune_circle x4 2x2 (square+diamond knot - never a pentagram), braziers x4, sarcophagus x4 1x2,
+    iron_gate_closed/open, crystal_cluster x4, stalagmites x5. Sheet is now 2521 tiles, 354 objects.
 
 ## TODO (in order, 2-3 lettered tasks per chat; push after each)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
 ### 2. Props (rest) - `props.py`, one `part_*` each
-- 2f. `part_dungeon` (cat `dungeon`): spikes up/down, lever left/right, pressure plate up/down,
-  cage, web corner x4 (rot), bones, skull pile, chains, portal (4 colours), rift, rune circle 2x2,
-  brazier, sarcophagus 1x2, iron gate open/closed, crystal cluster, stalagmite.
+- (all props parts done; add more `part_*` only if a later task needs them)
 
 ### 3. Kingdoms - `kingdoms.py` (new file; `build(A)` is already auto-called by build.py)
 - 3a. Parametric building generator `building(w, h, pal, roof, trim)` + kingdoms Human, Elven,
@@ -133,6 +135,7 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 - `tree_snowy` (pine): snow only shows on the top tier; widen the snow band on the lower tiers.
 - `stairs_*`: steps read as flat stripes; add a side stringer / perspective taper.
 - `window_stained`: centre rosette is hidden by the frame cross; `trapdoor_open` ladder is hard to read.
+- `web_*` are faint on light ground (fine on dark dungeon floor); `brazier_*` legs read a bit like a basket.
 - `door_*_closed_e/w` are a 3px strip by design (wall edge); thicken to 4px if invisible on device.
 - Flowers / reeds are thin at 1x; fine as ground cover, thicken if they vanish on device.
 
