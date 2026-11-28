@@ -129,6 +129,9 @@ object MapColorPalette {
         if (lower == "null" || lower == "none" || lower == "transparent" || lower == "clear") {
             return null
         }
+        // Tileset layer markers ("tile:grass", "line:river", "obj:tree_oak") pass through untouched;
+        // MapPaintEngine's layered grid turns them into GridCell.tile / line / obj.
+        if (MapLayerMarker.isMarker(lower)) return lower
         namedColorLookup[lower]?.let { return it }
 
         val withoutHash = trimmed.removePrefix("#")
@@ -158,6 +161,44 @@ object MapColorPalette {
             appendLine("  $cat: " + items.joinToString(", ") { "${it.name}=${it.hex}" })
         }
     }.trim()
+}
+
+/**
+ * Tileset names travel through the paint ops inside `colorHex` as "tile:<terrain>", "line:<lineset>" or
+ * "obj:<object>", so every existing op (rect, line, circle, scatter, flood fill...) paints tiles for free.
+ */
+object MapLayerMarker {
+    const val TILE = "tile:"
+    const val LINE = "line:"
+    const val OBJ = "obj:"
+
+    fun isMarker(value: String?): Boolean =
+        value != null && (value.startsWith(TILE) || value.startsWith(LINE) || value.startsWith(OBJ))
+
+    private fun cleanName(raw: String?): String? =
+        raw?.trim()?.lowercase()?.replace(' ', '_')?.replace('-', '_')
+            ?.filter { it.isLetterOrDigit() || it == '_' }?.take(48)?.takeIf { it.isNotEmpty() }
+
+    fun of(prefix: String, rawName: String?): String? = cleanName(rawName)?.let { prefix + it }
+
+    /** Layers [incoming] onto [existing]: ground replaces everything, lines and objects stack on top. */
+    fun merge(existing: GridCell?, incoming: GridCell): GridCell {
+        val marker = incoming.colorHex
+        if (!isMarker(marker)) return incoming
+        val name = marker!!.substringAfter(':')
+        val base = existing ?: GridCell()
+        return when {
+            marker.startsWith(TILE) -> GridCell(tile = name, label = base.label)
+            marker.startsWith(LINE) -> base.copy(line = name, emoji = null)
+            else -> base.copy(obj = name, emoji = null)
+        }
+    }
+}
+
+/** Grid that layers tileset markers instead of overwriting the whole cell. */
+private class LayeredGrid(initial: Map<String, GridCell>) : LinkedHashMap<String, GridCell>(initial) {
+    override fun put(key: String, value: GridCell): GridCell? =
+        super.put(key, MapLayerMarker.merge(get(key), value))
 }
 
 sealed interface MapPaintOp {
@@ -290,7 +331,7 @@ object MapPaintEngine {
         val targetWidth = (script.width ?: currentWidth).coerceIn(4, com.example.data.MAP_MAX_SIZE)
         val targetHeight = (script.height ?: currentHeight).coerceIn(4, com.example.data.MAP_MAX_SIZE)
 
-        val nextGrid = if (script.clearFirst) {
+        val baseGrid: Map<String, GridCell> = if (script.clearFirst) {
             mutableMapOf()
         } else {
             currentGrid.filterKeys { key ->
@@ -300,6 +341,8 @@ object MapPaintEngine {
                 gx in 0 until targetWidth && gy in 0 until targetHeight
             }.toMutableMap()
         }
+
+        val nextGrid: MutableMap<String, GridCell> = LayeredGrid(baseGrid)
 
         var opsApplied = 0
 
@@ -556,7 +599,7 @@ object MapPaintEngine {
                         colorHex = MapColorPalette.normalizeColorHex(cell.colorHex),
                         emoji = sanitizeMapEmoji(cell.emoji),
                     )
-                    if (normalized.colorHex != null || normalized.emoji != null) {
+                    if (!normalized.isEmpty) {
                         nextGrid["$gx,$gy"] = normalized
                         directCount++
                     }
@@ -638,13 +681,24 @@ object MapPaintEngine {
             appendLine("Current painted tiles: none (empty grid).")
         } else {
             val grouped = grid.entries.groupBy { (_, cell) ->
-                "${cell.colorHex ?: "none"}|${cell.emoji ?: ""}"
+                listOfNotNull(
+                    cell.tile?.let { "tile=$it" },
+                    cell.line?.let { "line=$it" },
+                    cell.obj?.let { "obj=$it" },
+                    cell.colorHex?.let { "color=$it" },
+                    cell.emoji?.takeIf { it.isNotEmpty() }?.let { "emoji=$it" },
+                ).joinToString(" ").ifEmpty { "none" }
             }
             appendLine("Current painted tiles (${grid.size} occupied):")
-            grouped.entries.take(18).forEach { (style, entries) ->
-                val sampleCoords = entries.take(18).joinToString(", ") { "(${it.key})" }
-                val suffix = if (entries.size > 18) " ... (+${entries.size - 18} more)" else ""
-                appendLine("  - Style [$style] x${entries.size}: $sampleCoords$suffix")
+            grouped.entries.sortedByDescending { it.value.size }.take(24).forEach { (style, entries) ->
+                val xs = entries.mapNotNull { it.key.substringBefore(',').toIntOrNull() }
+                val ys = entries.mapNotNull { it.key.substringAfter(',').toIntOrNull() }
+                val box = if (xs.isNotEmpty() && ys.isNotEmpty()) {
+                    " region x ${xs.min()}..${xs.max()}, y ${ys.min()}..${ys.max()};"
+                } else ""
+                val sampleCoords = entries.take(10).joinToString(", ") { "(${it.key})" }
+                val suffix = if (entries.size > 10) " ... (+${entries.size - 10} more)" else ""
+                appendLine("  - [$style] x${entries.size}:$box $sampleCoords$suffix")
             }
         }
     }.trim()
@@ -690,8 +744,14 @@ object MapPaintJsonParser {
                     co.optCleanString("colorHex") ?: co.optCleanString("color")
                 )
                 val emoji = sanitizeMapEmoji(co.optCleanString("emoji"))
-                if (color != null || emoji != null) {
-                    directCells[k] = GridCell(colorHex = color, emoji = emoji)
+                val tile = MapLayerMarker.of("", co.optCleanString("tile") ?: co.optCleanString("terrain"))
+                val line = MapLayerMarker.of("", co.optCleanString("line"))
+                val objName = MapLayerMarker.of("", co.optCleanString("obj") ?: co.optCleanString("object"))
+                if (color != null || emoji != null || tile != null || line != null || objName != null) {
+                    directCells[k] = GridCell(
+                        colorHex = color?.takeUnless { MapLayerMarker.isMarker(it) },
+                        emoji = emoji, tile = tile, line = line, obj = objName,
+                    )
                 }
             }
         }
@@ -734,12 +794,29 @@ object MapPaintJsonParser {
 
     private fun parseSingleOp(o: JSONObject): MapPaintOp? {
         val tool = (o.optCleanString("tool") ?: o.optCleanString("type") ?: "").lowercase()
-        val colorHex = o.optCleanString("colorHex")
+        val rawColor = o.optCleanString("colorHex")
             ?: o.optCleanString("color")
             ?: o.optCleanString("bg")
         val emoji = sanitizeMapEmoji(o.optCleanString("emoji"))
+        val tileName = o.optCleanString("tile") ?: o.optCleanString("terrain")
+        val lineName = o.optCleanString("line")
+            ?: tool.takeIf { it == "river" || it == "road" || it == "fence" || it == "wall" }
+                ?.takeIf { rawColor == null && emoji == null && tileName == null }
+        val objName = o.optCleanString("obj") ?: o.optCleanString("object") ?: o.optCleanString("prop")
+        // Tileset names win over colours; they ride inside colorHex as layer markers.
+        val colorHex = MapLayerMarker.of(MapLayerMarker.OBJ, objName)
+            ?: MapLayerMarker.of(MapLayerMarker.LINE, lineName)
+            ?: MapLayerMarker.of(MapLayerMarker.TILE, tileName)
+            ?: rawColor
 
         return when (tool) {
+            "place", "object", "prop", "put" -> {
+                val pts = parsePoints(o).ifEmpty {
+                    listOf(o.optInt("x", o.optInt("x1", 0)) to o.optInt("y", o.optInt("y1", 0)))
+                }
+                if (objName == null) null else MapPaintOp.Paint(points = pts, colorHex = colorHex, brushSize = 1)
+            }
+
             "rect", "fill_rect", "rectangle", "box" -> MapPaintOp.Rect(
                 x1 = o.optInt("x1", o.optInt("x", 0)),
                 y1 = o.optInt("y1", o.optInt("y", 0)),
@@ -760,7 +837,7 @@ object MapPaintJsonParser {
                 thickness = o.optInt("thickness", 1),
             )
 
-            "line", "draw_line", "path", "corridor", "river", "road" -> MapPaintOp.Line(
+            "line", "draw_line", "path", "corridor", "river", "road", "fence", "wall" -> MapPaintOp.Line(
                 x1 = o.optInt("x1", 0),
                 y1 = o.optInt("y1", 0),
                 x2 = o.optInt("x2", 0),
