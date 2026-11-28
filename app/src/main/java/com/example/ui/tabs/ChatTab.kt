@@ -254,6 +254,7 @@ fun ChatTab(
         val roomUrl = "https://meet.jit.si/$roomSlug#config.startWithVideoMuted=true&config.startAudioOnly=true" +
             "&config.disableDeepLinking=true&config.prejoinConfig.enabled=false"
         var showVoiceRoom by remember { mutableStateOf(false) }
+        val voiceContext = androidx.compose.ui.platform.LocalContext.current
         if (showVoiceRoom) {
             com.example.ui.components.VoiceRoomDialog(
                 roomUrl = roomUrl,
@@ -360,7 +361,10 @@ fun ChatTab(
                         ) {
                             Button(
                                 onClick = {
-                                    showVoiceRoom = true
+                                    // Native room (screen share works); WebView room only if the SDK fails to start.
+                                    if (!com.example.ui.components.VoiceRoomNative.launch(voiceContext, roomSlug, null)) {
+                                        showVoiceRoom = true
+                                    }
                                 },
                                 modifier = Modifier.weight(1f).testTag("open_voice_room_button")
                             ) {
