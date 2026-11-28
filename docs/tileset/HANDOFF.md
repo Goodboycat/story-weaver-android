@@ -7,9 +7,7 @@ drives from plain text ("make a snowy kingdom with a river"), including edits to
 - Art is PROCEDURAL (Python + numpy + Pillow in `tools/tileset/`). No image-generation models.
 - Grid is uniform 16x16, zero gaps / borders / labels, transparent background for overlays.
 - NO demon content, ever. Delete any you find. Use "Corrupted Kingdom" / "Dark Kingdom" instead.
-  Still to remove in app code: the ogre/goblin emoji used as monster defaults (`MapPaintEngine.kt`
-  ~l.563 and ~l.682, `AiParserService.kt` l.48/157/373/644, `EntitiesTab.kt` l.158,
-  `EmojiPickerDialog.kt` l.131-132) -> swap for a neutral beast emoji / tileset sprite.
+  (The ogre/goblin/imp emoji are gone from the app code - monster default is now the wolf emoji; do not re-add.)
 - Everything faces FOUR directions (sprites: down, left, right, up).
 - Pull before push, push after every task. Never ask the owner questions; decide.
 - Each chat has < 75k tokens. Do as many lettered tasks as fit (owner: the old split was too small; keep going after each push
@@ -129,6 +127,14 @@ its own, and the highest lower neighbour is drawn underneath the transparent rim
     `@Composable TilePreview(atlas, kind = tile|line|obj|sprite, name, size)`), wired into the Canvas in `GridMapTab.kt` (legacy
     colour cells still draw; tokens with `sprite` draw the sprite, big ones anchored bottom-centre, instead of the emoji bubble).
 
+6de. `ui/tabs/TilePaletteDialog.kt` (`TilePaletteDialog(atlas, kinds, initialKind, onPick: (TilePick(kind, name)))`: kind tabs ->
+    `cat` chips -> preview grid + search). GridMapTab: "Tileset" chip in the Overlay row sets `selectedTilePick`; brush / fill / rect
+    paint it LAYERED through `paintOver` (line / obj keep the terrain below; terrain clears the legacy colour); picking a colour /
+    emoji / quick block clears the tile brush. Token dialog has "Pick tileset sprite" (-> `MapToken.sprite`); moving a token sets
+    `dir` from the travel direction. Grid cap is `MAP_MAX_SIZE = 64` (Models.kt) everywhere the old 30 was. Ogre/goblin emoji
+    replaced by wolf/boar in all 7 files. Known gaps: eraser removes the whole cell (no per-layer erase); quick blocks do not store
+    tile brushes; multi-tile objects are not clipped at the map edge.
+
 ## TODO (in order; push after each, then continue with the next)
 Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix `_n/_e/_s/_w`.
 
@@ -136,8 +142,7 @@ Naming: snake_case, variant as suffix (`door_wood_closed_s`). Directions suffix 
 - (all props parts done; add more `part_*` only if a later task needs them)
 
 ### 6. Kotlin
-- 6d. Tile palette picker grouped by `cat`; raise the 30x30 grid cap.
-- 6e. Remove ogre/goblin emoji defaults (file list in "Hard rules").
+- (6a-6e written; they still have to pass the CI compile - see 9b, do that EARLY)
 
 ### 7. AI
 - 7a. `MapPaintOp` / `MapPaintJsonParser`: every op accepts `"tile"`; new ops `place` (object) and

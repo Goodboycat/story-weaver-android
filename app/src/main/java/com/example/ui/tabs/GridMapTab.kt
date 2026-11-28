@@ -168,16 +168,16 @@ fun GridMapTab(
     }
     val scope = rememberCoroutineScope()
 
-    var width by remember(story.id, story.mapWidth) { mutableIntStateOf(story.mapWidth.toInt().coerceIn(4, 30)) }
-    var height by remember(story.id, story.mapHeight) { mutableIntStateOf(story.mapHeight.toInt().coerceIn(4, 30)) }
+    var width by remember(story.id, story.mapWidth) { mutableIntStateOf(story.mapWidth.toInt().coerceIn(4, com.example.data.MAP_MAX_SIZE)) }
+    var height by remember(story.id, story.mapHeight) { mutableIntStateOf(story.mapHeight.toInt().coerceIn(4, com.example.data.MAP_MAX_SIZE)) }
     var grid by remember(story.id, story.mapGridJson) { mutableStateOf(JsonCodecs.decodeGrid(story.mapGridJson)) }
     var tokens by remember(story.id, story.mapTokensJson) { mutableStateOf(JsonCodecs.decodeTokens(story.mapTokensJson)) }
     var bgLayers by remember(story.id, story.mapBackgroundUrl) {
         mutableStateOf(
             JsonCodecs.decodeMapBackgroundLayers(
                 story.mapBackgroundUrl,
-                story.mapWidth.toInt().coerceIn(4, 30),
-                story.mapHeight.toInt().coerceIn(4, 30)
+                story.mapWidth.toInt().coerceIn(4, com.example.data.MAP_MAX_SIZE),
+                story.mapHeight.toInt().coerceIn(4, com.example.data.MAP_MAX_SIZE)
             )
         )
     }
@@ -190,6 +190,9 @@ fun GridMapTab(
     var selectedEmoji by remember { mutableStateOf<String?>(null) }
     var selectedAssetBase64 by remember { mutableStateOf<String?>(null) }
     var rectStart by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    // Tileset brush: kind = tile | line | obj. When set it replaces the colour / emoji brush.
+    var selectedTilePick by remember { mutableStateOf<TilePick?>(null) }
+    var showTilePalette by remember { mutableStateOf(false) }
     var selectedTokenId by remember { mutableStateOf<String?>(null) }
     var selectedBgLayerId by remember { mutableStateOf<String?>(null) }
 
@@ -228,13 +231,31 @@ fun GridMapTab(
 
     fun encodedBackground(): String? = JsonCodecs.encodeMapBackgroundLayers(bgLayers)
 
-    fun currentBrushCell(): GridCell = GridCell(
+    fun currentBrushCell(): GridCell = selectedTilePick?.let { pick ->
+        GridCell(
+            tile = pick.name.takeIf { pick.kind == "tile" },
+            line = pick.name.takeIf { pick.kind == "line" },
+            obj = pick.name.takeIf { pick.kind == "obj" },
+        )
+    } ?: GridCell(
         colorHex = selectedColorHex,
         emoji = selectedEmoji,
         imageBase64 = selectedAssetBase64,
     )
 
+    /** Tileset brushes are layered: a line / object keeps the terrain below it, a terrain keeps line + object. */
+    fun paintOver(existing: GridCell?, brush: GridCell): GridCell {
+        if (selectedTilePick == null || existing == null) return brush
+        return existing.copy(
+            tile = brush.tile ?: existing.tile,
+            line = brush.line ?: existing.line,
+            obj = brush.obj ?: existing.obj,
+            colorHex = if (brush.tile != null) null else existing.colorHex,
+        )
+    }
+
     fun saveCurrentComboToQuickInventory() {
+        if (selectedTilePick != null) return
         if (selectedColorHex == null && selectedEmoji == null && selectedAssetBase64 == null) return
         onAddQuickBlock(
             QuickMapBlock(
@@ -265,8 +286,9 @@ fun GridMapTab(
                     if (activeTool == MapTool.ERASER) {
                         if (next.remove(key) != null) changed = true
                     } else {
-                        if (next[key] != brushCell) {
-                            next[key] = brushCell
+                        val painted = paintOver(next[key], brushCell)
+                        if (next[key] != painted) {
+                            next[key] = painted
                             changed = true
                         }
                     }
@@ -286,7 +308,7 @@ fun GridMapTab(
         val startKey = cellKey(sx, sy)
         val targetCell = grid[startKey]
         val replacement = currentBrushCell()
-        if (targetCell == replacement) return
+        if (targetCell == paintOver(targetCell, replacement)) return
         saveCurrentComboToQuickInventory()
         val next = grid.toMutableMap()
         val queue = ArrayDeque<Pair<Int, Int>>()
@@ -298,7 +320,7 @@ fun GridMapTab(
             if (x !in 0 until width || y !in 0 until height || key in visited) continue
             if (next[key] != targetCell) continue
             visited.add(key)
-            next[key] = replacement
+            next[key] = paintOver(targetCell, replacement)
             queue.add(x + 1 to y)
             queue.add(x - 1 to y)
             queue.add(x to y + 1)
@@ -318,7 +340,7 @@ fun GridMapTab(
         val cell = currentBrushCell()
         for (x in minX..maxX) {
             for (y in minY..maxY) {
-                next[cellKey(x, y)] = cell
+                next[cellKey(x, y)] = paintOver(next[cellKey(x, y)], cell)
             }
         }
         grid = next
@@ -356,7 +378,17 @@ fun GridMapTab(
                     }
                 } else if (selectedTokenId != null) {
                     val updated = tokens.map { t ->
-                        if (t.id == selectedTokenId) t.copy(x = gx, y = gy) else t
+                        if (t.id == selectedTokenId) {
+                            // face the direction of travel: 0 down, 1 left, 2 right, 3 up
+                            val dx = gx - t.x
+                            val dy = gy - t.y
+                            val facing = when {
+                                dx == 0 && dy == 0 -> t.dir
+                                kotlin.math.abs(dx) > kotlin.math.abs(dy) -> if (dx < 0) 1 else 2
+                                else -> if (dy < 0) 3 else 0
+                            }
+                            t.copy(x = gx, y = gy, dir = facing)
+                        } else t
                     }
                     tokens = updated
                     selectedTokenId = null
@@ -578,7 +610,7 @@ fun GridMapTab(
                                         color = if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.3f),
                                         shape = MaterialTheme.shapes.small
                                     )
-                                    .clickable { selectedColorHex = hex }
+                                    .clickable { selectedColorHex = hex; selectedTilePick = null }
                                     .testTag("map_bg_color_$hex")
                             )
                         }
@@ -598,8 +630,26 @@ fun GridMapTab(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         FilterChip(
-                            selected = selectedEmoji == null && selectedAssetBase64 == null,
+                            selected = selectedTilePick != null,
+                            onClick = { if (tileAtlas != null) showTilePalette = true },
+                            leadingIcon = {
+                                val a = tileAtlas
+                                val pick = selectedTilePick
+                                if (a != null && pick != null) TilePreview(a, pick.kind, pick.name, 18.dp)
+                                else Icon(Icons.Default.Layers, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            label = {
+                                Text(
+                                    text = selectedTilePick?.name?.replace('_', ' ') ?: "Tileset",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            },
+                            modifier = Modifier.testTag("map_open_tileset_button")
+                        )
+                        FilterChip(
+                            selected = selectedTilePick == null && selectedEmoji == null && selectedAssetBase64 == null,
                             onClick = {
+                                selectedTilePick = null
                                 selectedEmoji = null
                                 selectedAssetBase64 = null
                             },
@@ -638,6 +688,7 @@ fun GridMapTab(
                                         )
                                         .clickable {
                                             selectedAssetBase64 = if (selected) null else asset.imageBase64
+                                            selectedTilePick = null
                                             selectedEmoji = null
                                         }
                                 )
@@ -784,7 +835,7 @@ fun GridMapTab(
                             }
                         }
                     }
-                    .pointerInput(activeTool, isGmMode, width, height, selectedColorHex, selectedEmoji, selectedAssetBase64, brushSize, scale, panOffset, bgLayers, selectedBgLayerId) {
+                    .pointerInput(activeTool, isGmMode, width, height, selectedColorHex, selectedEmoji, selectedAssetBase64, selectedTilePick, brushSize, scale, panOffset, bgLayers, selectedBgLayerId) {
                         if (isGmMode && (activeTool == MapTool.BRUSH || activeTool == MapTool.ERASER || activeTool == MapTool.ARRANGE_IMAGES)) {
                             detectDragGestures(
                                 onDragStart = { startOffset ->
@@ -1078,6 +1129,7 @@ fun GridMapTab(
                                 sizeDp = 44.dp,
                                 isSelected = isActive,
                                 onClick = {
+                                    selectedTilePick = null
                                     selectedColorHex = block.colorHex
                                     selectedEmoji = block.emoji
                                     selectedAssetBase64 = block.imageBase64
@@ -1146,12 +1198,42 @@ fun GridMapTab(
         var customTokenName by remember { mutableStateOf("") }
         var customTokenEmoji by remember { mutableStateOf("🧙") }
         var showCustomTokenEmojiPicker by remember { mutableStateOf(false) }
+        var customTokenSprite by remember { mutableStateOf<String?>(null) }
+        var showSpritePicker by remember { mutableStateOf(false) }
+        if (showSpritePicker) {
+            tileAtlas?.let { a ->
+                TilePaletteDialog(
+                    atlas = a,
+                    kinds = listOf("sprite"),
+                    onPick = {
+                        customTokenSprite = it.name
+                        if (customTokenName.isBlank()) {
+                            customTokenName = it.name.replace('_', ' ').replaceFirstChar { c -> c.uppercase() }
+                        }
+                        showSpritePicker = false
+                    },
+                    onDismiss = { showSpritePicker = false },
+                )
+            }
+        }
 
         AlertDialog(
             onDismissRequest = { showTokenPicker = false },
             title = { Text("Place Token on Map") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tileAtlas?.let { a ->
+                        OutlinedButton(
+                            onClick = { showSpritePicker = true },
+                            modifier = Modifier.fillMaxWidth().testTag("map_token_sprite_button")
+                        ) {
+                            customTokenSprite?.let { TilePreview(a, "sprite", it, 24.dp) }
+                            Text(
+                                text = customTokenSprite?.replace('_', ' ') ?: "Pick tileset sprite (people, creatures)",
+                                modifier = Modifier.padding(start = 6.dp)
+                            )
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1180,6 +1262,7 @@ fun GridMapTab(
                                     ownerId = currentUserId,
                                     x = (width / 2).coerceIn(0, width - 1),
                                     y = (height / 2).coerceIn(0, height - 1),
+                                    sprite = customTokenSprite,
                                 )
                                 val updated = tokens + newToken
                                 tokens = updated
@@ -1242,11 +1325,27 @@ fun GridMapTab(
         }
     }
 
+    if (showTilePalette) {
+        tileAtlas?.let { a ->
+            TilePaletteDialog(
+                atlas = a,
+                initialKind = selectedTilePick?.kind ?: "tile",
+                onPick = {
+                    selectedTilePick = it
+                    if (activeTool == MapTool.ERASER) activeTool = MapTool.BRUSH
+                    showTilePalette = false
+                },
+                onDismiss = { showTilePalette = false },
+            )
+        }
+    }
+
     if (showMapEmojiPicker) {
         AllEmojiPickerDialog(
             currentEmoji = selectedEmoji ?: "🏰",
             title = "Select Terrain Emoji",
             onSelect = { picked ->
+                selectedTilePick = null
                 selectedEmoji = picked
                 selectedAssetBase64 = null
             },
@@ -1318,6 +1417,7 @@ fun GridMapTab(
             scriptJson = aiUndoSnapshot!!.scriptJson,
             grid = grid,
             onPickBrushBlock = { colorHex, emoji ->
+                selectedTilePick = null
                 selectedColorHex = colorHex
                 selectedEmoji = emoji
                 selectedAssetBase64 = null
@@ -1331,6 +1431,7 @@ fun GridMapTab(
         ExpandedColorPaletteDialog(
             currentColorHex = selectedColorHex,
             onSelectColor = { hex ->
+                selectedTilePick = null
                 selectedColorHex = hex
                 if (activeTool != MapTool.FLOOD_FILL && activeTool != MapTool.RECT_FILL) {
                     activeTool = MapTool.BRUSH

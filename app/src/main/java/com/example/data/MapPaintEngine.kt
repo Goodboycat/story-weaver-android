@@ -287,8 +287,8 @@ object MapPaintEngine {
         ownerId: String,
         scriptJson: String = "",
     ): MapPaintOutcome {
-        val targetWidth = (script.width ?: currentWidth).coerceIn(4, 30)
-        val targetHeight = (script.height ?: currentHeight).coerceIn(4, 30)
+        val targetWidth = (script.width ?: currentWidth).coerceIn(4, com.example.data.MAP_MAX_SIZE)
+        val targetHeight = (script.height ?: currentHeight).coerceIn(4, com.example.data.MAP_MAX_SIZE)
 
         val nextGrid = if (script.clearFirst) {
             mutableMapOf()
@@ -576,7 +576,7 @@ object MapPaintEngine {
             MapToken(
                 id = "tk_${UUID.randomUUID().toString().take(8)}",
                 label = spec.label.trim().ifBlank { "Marker" }.take(40),
-                emoji = (sanitizeMapEmoji(spec.emoji) ?: if (cleanKind == "monster") "👹" else "🧙").take(12),
+                emoji = (sanitizeMapEmoji(spec.emoji) ?: if (cleanKind == "monster") "🐺" else "🧙").take(12),
                 kind = cleanKind,
                 ownerId = ownerId,
                 x = spec.x.coerceIn(0, targetWidth - 1),
@@ -704,7 +704,7 @@ object MapPaintJsonParser {
                 val label = to.optCleanString("label") ?: ""
                 if (label.isNotBlank()) {
                     val kind = to.optCleanString("kind") ?: "monster"
-                    val fallbackEmoji = if (kind.equals("player", ignoreCase = true)) "🧙" else "👹"
+                    val fallbackEmoji = if (kind.equals("player", ignoreCase = true)) "🧙" else "🐺"
                     tokens += AiMapTokenSpec(
                         label = label,
                         emoji = sanitizeMapEmoji(to.optCleanString("emoji")) ?: fallbackEmoji,

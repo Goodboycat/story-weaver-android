@@ -326,8 +326,8 @@ class StoryRepository(
         val path = "stories/$storyId"
         return try {
             requireUserId()
-            val w = width.coerceIn(4, 30).toLong()
-            val h = height.coerceIn(4, 30).toLong()
+            val w = width.coerceIn(4, com.example.data.MAP_MAX_SIZE).toLong()
+            val h = height.coerceIn(4, com.example.data.MAP_MAX_SIZE).toLong()
             val updates = mutableMapOf<String, Any?>(
                 "mapWidth" to w,
                 "mapHeight" to h,

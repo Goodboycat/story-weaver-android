@@ -546,7 +546,7 @@ object CharacterParserHelpers {
             ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
         val emoji = emojiCandidate
             ?: leadingEmoji
-            ?: EmojiHelper.suggestEmoji(cleanBlock, if (kind == "monster") "👹" else "🛡️")
+            ?: EmojiHelper.suggestEmoji(cleanBlock, if (kind == "monster") "🐺" else "🛡️")
 
         val powersList = parsePowerEntries(sections["powers"])
         val missionsList = parseMissionEntries(sections["missions"])

@@ -80,8 +80,8 @@ fun MapSettingsDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var gridWidth by remember(initialWidth) { mutableIntStateOf(initialWidth.coerceIn(4, 30)) }
-    var gridHeight by remember(initialHeight) { mutableIntStateOf(initialHeight.coerceIn(4, 30)) }
+    var gridWidth by remember(initialWidth) { mutableIntStateOf(initialWidth.coerceIn(4, com.example.data.MAP_MAX_SIZE)) }
+    var gridHeight by remember(initialHeight) { mutableIntStateOf(initialHeight.coerceIn(4, com.example.data.MAP_MAX_SIZE)) }
     var layers by remember(initialLayers) { mutableStateOf(initialLayers) }
     var isProcessingImages by remember { mutableStateOf(false) }
     var imageStatusMsg by remember { mutableStateOf<String?>(null) }
@@ -168,13 +168,13 @@ fun MapSettingsDialog(
                 GridDimensionStepper(
                     label = "Width (Columns)",
                     value = gridWidth,
-                    onChange = { gridWidth = it.coerceIn(4, 30) },
+                    onChange = { gridWidth = it.coerceIn(4, com.example.data.MAP_MAX_SIZE) },
                     testTagPrefix = "map_width"
                 )
                 GridDimensionStepper(
                     label = "Height (Rows)",
                     value = gridHeight,
-                    onChange = { gridHeight = it.coerceIn(4, 30) },
+                    onChange = { gridHeight = it.coerceIn(4, com.example.data.MAP_MAX_SIZE) },
                     testTagPrefix = "map_height"
                 )
 
@@ -512,8 +512,8 @@ private fun GridDimensionStepper(
         Slider(
             value = value.toFloat(),
             onValueChange = { onChange(it.roundToInt()) },
-            valueRange = 4f..30f,
-            steps = 25
+            valueRange = 4f..com.example.data.MAP_MAX_SIZE.toFloat(),
+            steps = com.example.data.MAP_MAX_SIZE - 5
         )
     }
 }

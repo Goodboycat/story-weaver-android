@@ -189,7 +189,7 @@ fun EntitiesTab(
                                 memberUids = story.memberUids,
                                 kind = kind,
                                 avatarEmoji = when (kind) {
-                                    "monster" -> "👹"
+                                    "monster" -> "🐺"
                                     "npc" -> "🧙"
                                     else -> "🛡️"
                                 },

@@ -75,7 +75,7 @@ fun characterToEntityRef(character: Character): ChatEntityRef {
         },
         emoji = character.avatarEmoji.ifBlank {
             when (character.kind) {
-                "monster" -> "👹"
+                "monster" -> "🐺"
                 "npc" -> "🧙"
                 else -> "🛡️"
             }
@@ -170,7 +170,7 @@ fun refDefaultEmoji(type: String): String = when (type) {
     "note" -> "📜"
     "player" -> "🛡️"
     "npc" -> "🧙"
-    "monster" -> "👹"
+    "monster" -> "🐺"
     else -> "📚"
 }
 

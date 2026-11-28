@@ -173,6 +173,9 @@ data class ActivityLog(
     @ServerTimestamp val createdAt: Timestamp? = null,
 )
 
+/** Largest map side in cells (was 30 before the tileset). */
+const val MAP_MAX_SIZE = 64
+
 // --- Local Structured JSON Sub-Models ---
 
 data class GridCell(

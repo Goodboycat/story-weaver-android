@@ -46,7 +46,7 @@ object EmojiHelper {
         listOf("village", "town", "city", "market", "square") to "🏘️",
         listOf("temple", "shrine", "altar", "cathedral", "ruins") to "🏛️",
         listOf("undead", "skeleton", "zombie", "lich", "ghost") to "💀",
-        listOf("beast", "wolf", "spider", "goblin", "orc", "monster") to "👹",
+        listOf("beast", "wolf", "spider", "goblin", "orc", "monster") to "🐺",
         listOf("gold", "coin", "treasure", "loot", "gem", "crown") to "👑",
         listOf("book", "lore", "scroll", "clue", "mystery", "journal") to "📜",
     )
@@ -159,14 +159,14 @@ object AiPromptTemplates {
                 {"tool": "erase", "x1": 7, "y1": 1, "x2": 8, "y2": 1}
               ],
               "tokens": [
-                {"label": "Goblin Scout", "emoji": "👺", "kind": "monster", "x": 5, "y": 4}
+                {"label": "Goblin Scout", "emoji": "🐺", "kind": "monster", "x": 5, "y": 4}
               ]
             }
             """.trimIndent()
         )
         appendLine()
         appendLine("PAINTING ENGINE RULES:")
-        appendLine("- Grid bounds: width 4..30, height 4..30. Coordinates are 0-indexed: x in 0..width-1, y in 0..height-1.")
+        appendLine("- Grid bounds: width 4..${com.example.data.MAP_MAX_SIZE}, height 4..${com.example.data.MAP_MAX_SIZE}. Coordinates are 0-indexed: x in 0..width-1, y in 0..height-1.")
         appendLine("- Operations execute in order! Paint base terrain/floors first (e.g. rect), then walls/borders (rect_border), then rivers/roads/corridors (line), then cutouts/doorways (erase or paint), then details/furniture/trees/traps/treasures (paint, circle, scatter, checker).")
         appendLine("- Composite blocks: every tile has an optional background block colorHex (#RRGGBB or JSON null) AND an optional foreground single Unicode emoji.")
         appendLine("- STRICT EMOJI & TILE RULE: NEVER output the string \"null\", \"none\", or plain English words like \"tree\" or \"wall\" in \"emoji\". For a color-only block, either omit \"emoji\" completely or set JSON null (not quoted \"null\"). When drawing symbols, ONLY use actual Unicode emojis from the app symbol set (🌲 🌳 🌴 🌵 🍄 🌻 ⛰️ 🪨 🌊 💧 ❄️ 🔥 🌋 🧱 🏰 🏛️ ⛩️ ⛺ 🏠 🛤️ 🌉 🚪 🗝️ 🪜 🕳️ ☠️ 💀 ⚔️ 🛡️ 🏹 💎 🪙 ⚱️ 🕯️ 📜 ✨ 🔮 🧪 🪵).")
@@ -414,7 +414,7 @@ class AiParserService {
             val notes = o.optString("notes", "").ifBlank { rawText.take(4000) }
             val emoji = o.optString("avatarEmoji")
                 .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-                ?: EmojiHelper.suggestEmoji("$name $role $notes", if (kind == "monster") "👹" else "🛡️")
+                ?: EmojiHelper.suggestEmoji("$name $role $notes", if (kind == "monster") "🐺" else "🛡️")
 
             // Parse powers (object or rich formatted string)
             val powersArr = o.optJSONArray("powers")
@@ -910,10 +910,10 @@ class AiParserService {
         apiKeyOverride: String = "",
     ): Result<MapPaintOutcome> = try {
         val sys = AiPromptTemplates.mapArchitectSystemPrompt()
-        val effectiveW = (targetWidth ?: currentWidth).coerceIn(4, 30)
-        val effectiveH = (targetHeight ?: currentHeight).coerceIn(4, 30)
+        val effectiveW = (targetWidth ?: currentWidth).coerceIn(4, com.example.data.MAP_MAX_SIZE)
+        val effectiveH = (targetHeight ?: currentHeight).coerceIn(4, com.example.data.MAP_MAX_SIZE)
         val modeInstruction = if (replaceEntireMap) {
-            "MODE: CREATE NEW MAP (set \"clearFirst\": true). Target size: ${effectiveW}x${effectiveH} (adjust width/height within 4..30 only if requested)."
+            "MODE: CREATE NEW MAP (set \"clearFirst\": true). Target size: ${effectiveW}x${effectiveH} (adjust width/height within 4..${com.example.data.MAP_MAX_SIZE} only if requested)."
         } else {
             "MODE: EDIT EXISTING MAP (set \"clearFirst\": false and modify/enhance existing tiles without wiping unrelated parts). Target size: ${effectiveW}x${effectiveH}."
         }

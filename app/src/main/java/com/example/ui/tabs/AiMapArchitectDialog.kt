@@ -244,14 +244,14 @@ fun AiMapArchitectDialog(
                             Text("Width: $draftW", style = MaterialTheme.typography.labelSmall)
                             Slider(
                                 value = draftW.toFloat(),
-                                onValueChange = { draftW = it.roundToInt().coerceIn(4, 30) },
-                                valueRange = 4f..30f,
+                                onValueChange = { draftW = it.roundToInt().coerceIn(4, com.example.data.MAP_MAX_SIZE) },
+                                valueRange = 4f..com.example.data.MAP_MAX_SIZE.toFloat(),
                             )
                             Text("Height: $draftH", style = MaterialTheme.typography.labelSmall)
                             Slider(
                                 value = draftH.toFloat(),
-                                onValueChange = { draftH = it.roundToInt().coerceIn(4, 30) },
-                                valueRange = 4f..30f,
+                                onValueChange = { draftH = it.roundToInt().coerceIn(4, com.example.data.MAP_MAX_SIZE) },
+                                valueRange = 4f..com.example.data.MAP_MAX_SIZE.toFloat(),
                             )
                         }
                     }
